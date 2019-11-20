@@ -1,4 +1,4 @@
-MOVIE = samples/sample.hvqm
+MOVIE = samples/bad_apple.hvqm
 
 all: native
 

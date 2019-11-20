@@ -66,12 +66,8 @@ static struct
     u16 Huff_nodeno;
     u16 dc_max;
     u16 dc_min;
-    u8 *basisY;
-    u8 *basisU;
-    u8 *basisV;
-    void *dcbufY;
-    void *dcbufU;
-    void *dcbufV;
+    u8 *basis[3];
+    u8 *dcbuf[3];
     // some data that sgi calls wcode
     u32 divT[0x200];
     u8 clipT[0x300];
@@ -98,6 +94,31 @@ static struct
     u8 pix_alpha;
     //
 } global;
+
+__attribute__((unused))
+static void dumpPlanes(char const *prefix)
+{
+    static u32 frame = 0;
+    ++frame;
+    for (int plane_idx = 0; plane_idx < 1; ++plane_idx)
+    {
+        char path[128];
+        snprintf(path, 128, "%s_%u_%c.ppm", prefix, frame, "yuv"[plane_idx]);
+        FILE *f = fopen(path, "wb+");
+        u32 hblocks = plane_idx ? global.col_hblocks : global.lum_hblocks;
+        u32 vblocks = plane_idx ? global.col_vblocks : global.lum_vblocks;
+        fprintf(f, "P5\n%u %u\n255\n", hblocks, vblocks);
+        uint8_t const *p = (uint8_t const*)global.dcbuf[plane_idx];
+        for (u32 i = 0; i < vblocks; ++i)
+        {
+            for (u32 j = 0; j < hblocks; ++j)
+            {
+                fputc(*p++, f);
+            }
+        }
+        fclose(f);
+    }
+}
 
 static u32 getBit(BitBuffer *buf)
 {
@@ -170,11 +191,17 @@ static s16 decodeDC(BitBuffer *buf)
 {
     s16 sum = 0;
     s16 value;
-    do
+    value = decodeHuff(buf, &global.dcval_tree);
+    sum = value;
+    // '==' ?!
+    if (value == global.dc_min || value == global.dc_max)
     {
-        value = decodeHuff(buf, &global.dcval_tree);
-        sum += value;
-    } while (value == global.dc_min || value == global.dc_max);
+        do
+        {
+            value = decodeHuff(buf, &global.dcval_tree);
+            sum += value;
+        } while (value <= global.dc_min || value >= global.dc_max);
+    }
     return sum;
 }
 
@@ -194,7 +221,7 @@ static u8 getDeltaBN(u8 *rle, BitBuffer *val_buf, BitBuffer *rle_buf)
 }
 
 // HVQM4: kinda like IpicBlockDec
-static void decBlockCPU(u32 a0, u8 const *ptr, u32 a2)
+static void decBlockCPU()
 {
     // TODO
 }
@@ -213,12 +240,14 @@ static void ColorConv411()
 static void decLine()
 {
     // TODO
+    decBlockCPU();
 }
 
 // HVQM4: kinda like IpicPlaneDec
 static void decFrame()
 {
     // TODO
+    decLine();
 }
 
 // done
@@ -286,7 +315,7 @@ static void Ipic_BasisNumDec()
     {
         if (rle)
         {
-            global.basisY[i] = 0;
+            global.basis[0][i] = 0;
             --rle;
         }
         else
@@ -294,7 +323,7 @@ static void Ipic_BasisNumDec()
             u8 value = decodeHuff(&global.basisnum_buf[0], &global.basisnum_tree);
             if (value == 0)
                 rle = decodeHuff(&global.basisnumrun_buf[0], &global.basisnumrun_tree);
-            global.basisY[i] = value;
+            global.basis[0][i] = value;
         }
     }
     rle = 0;
@@ -302,8 +331,8 @@ static void Ipic_BasisNumDec()
     {
         if (rle)
         {
-            global.basisU[i] = 0;
-            global.basisV[i] = 0;
+            global.basis[1][i] = 0;
+            global.basis[2][i] = 0;
             --rle;
         }
         else
@@ -311,15 +340,79 @@ static void Ipic_BasisNumDec()
             u8 value = decodeHuff(&global.basisnum_buf[1], &global.basisnum_tree);
             if (value == 0)
                 rle = decodeHuff(&global.basisnumrun_buf[1], &global.basisnumrun_tree);
-            global.basisU[i] = value & 0xF;
-            global.basisV[i] = value >> 4;
+            global.basis[1][i] = value & 0xF;
+            global.basis[2][i] = value >> 4;
         }
+    }
+}
+
+// TODO: verify type of `rle`
+static s16 getDeltaDC(int comp, int *rle)
+{
+    if (*rle == 0)
+    {
+        s16 delta = decodeDC(&global.dcval_buf[comp]);
+        if (delta == 0)
+            *rle = decodeHuff(&global.dcrun_buf[comp], &global.basisnumrun_tree);
+        return delta;
+    }
+    else
+    {
+        --*rle;
+        return 0;
     }
 }
 
 static void IpicDcvDec()
 {
-    // TODO
+    u8 dcvalY = 0;
+    u8 dcvalU = 0;
+    u8 dcvalV = 0;
+    int rleY = 0;
+    int rleU = 0;
+    int rleV = 0;
+    u8 *dcbufY = global.dcbuf[0];
+    u8 *dcbufU = global.dcbuf[1];
+    u8 *dcbufV = global.dcbuf[2];
+    u8 *dcbufY_prev = global.dcbuf[0];
+    u8 *dcbufU_prev = global.dcbuf[1];
+    u8 *dcbufV_prev = global.dcbuf[2];
+    for (u32 h = 0; h < global.col_hblocks; ++h)
+    {
+        dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY;
+        dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY;
+        dcvalU += getDeltaDC(1, &rleU); *dcbufU++ = dcvalU;
+        dcvalV += getDeltaDC(2, &rleV); *dcbufV++ = dcvalV;
+    }
+    if (global.mcu411)
+    {
+        for (u32 h = 0; h < global.col_hblocks; ++h)
+        {
+            dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY;
+            dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY;
+        }
+    }
+    for (u32 v = 0; v < global.col_vblocks; ++v)
+    {
+        dcvalY = *dcbufY_prev++;
+        dcvalU = *dcbufU_prev++;
+        dcvalV = *dcbufV_prev++;
+        for (u32 h = 0; h < global.col_hblocks; ++h)
+        {
+            dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = (dcvalY + *dcbufY_prev++ + 1) / 2;
+            dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = (dcvalY + *dcbufY_prev++ + 1) / 2;
+            dcvalU += getDeltaDC(1, &rleU); *dcbufU++ = dcvalU; dcvalU = (dcvalU + *dcbufU_prev++ + 1) / 2;
+            dcvalV += getDeltaDC(2, &rleV); *dcbufV++ = dcvalV; dcvalV = (dcvalV + *dcbufV_prev++ + 1) / 2;
+        }
+        if (global.mcu411)
+        {
+            for (u32 h = 0; h < global.col_hblocks; ++h)
+            {
+                dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = (dcvalY + *dcbufY_prev++ + 1) / 2;
+                dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = (dcvalY + *dcbufY_prev++ + 1) / 2;
+            }
+        }
+    }
 }
 
 static void MakeNest()
@@ -334,6 +427,7 @@ static void HVQMDecodeIpic(HVQM2KeyFrame const *keyframe, void const *code)
     Ipic_BasisNumDec();
     IpicDcvDec();
     MakeNest();
+    dumpPlanes("/tmp/output/dcval");
 }
 
 static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code)
@@ -357,12 +451,12 @@ static void my_hvqm2Decode2(void const *code, u32 format, u32 *outbuf, u32 *prev
     if (format == HVQM2_VIDEO_HOLD)
         return HVQMDecodeHpic(outbuf, previm);
     u8 *workbuf = workbuf_;
-    global.basisY = workbuf; workbuf += global.lum_totalblocks;
-    global.dcbufY = workbuf; workbuf += global.lum_totalblocks;
-    global.basisU = workbuf; workbuf += global.col_totalblocks;
-    global.dcbufU = workbuf; workbuf += global.col_totalblocks;
-    global.basisV = workbuf; workbuf += global.col_totalblocks;
-    global.dcbufV = workbuf;
+    global.basis[0] = workbuf; workbuf += global.lum_totalblocks;
+    global.dcbuf[0] = workbuf; workbuf += global.lum_totalblocks;
+    global.basis[1] = workbuf; workbuf += global.col_totalblocks;
+    global.dcbuf[1] = workbuf; workbuf += global.col_totalblocks;
+    global.basis[2] = workbuf; workbuf += global.col_totalblocks;
+    global.dcbuf[2] = workbuf;
     HVQM2Frame const *frame = code;
     for (int i = 0; i < 2; ++i)
     {
@@ -391,7 +485,25 @@ static void my_hvqm2Decode2(void const *code, u32 format, u32 *outbuf, u32 *prev
         HVQM2PredictFrame const *predict = code + sizeof(HVQM2Frame);
         HVQMDecodePpic(predict, code);
     }
-    // TODO
+    decFrame();
+}
+
+static void dumpRGB(HVQM2Header const *header, int frame, u8 const *outbuf)
+{
+    char path[128];
+    snprintf(path, sizeof(path), "output/video_rgb_%i.ppm", frame);
+    FILE *outfile = fopen(path, "wb+");
+    fprintf(outfile, "P6\n%u %u\n255\n", header->width, header->height);
+    u8 temp[MAXWIDTH*MAXHEIGHT*3];
+    // remove alpha
+    for (u32 i = 0; i < header->width * header->height; ++i)
+    {
+        temp[3*i+0] = outbuf[4*i+0];
+        temp[3*i+1] = outbuf[4*i+1];
+        temp[3*i+2] = outbuf[4*i+2];
+    }
+    fwrite(temp, header->width * header->height * 3, 1, outfile);
+    fclose(outfile);
 }
 
 int main(int argc, char **argv)
@@ -406,7 +518,7 @@ int main(int argc, char **argv)
 
     if (argc != 2)
     {
-        fprintf(stderr, "usage: %s <video.hvqm>", argv[0]);
+        fprintf(stderr, "usage: %s <video.hvqm>\n", argv[0]);
         return -1;
     }
     FILE *f = fopen(argv[1], "rb");
@@ -457,6 +569,7 @@ int main(int argc, char **argv)
 #endif
 
     u32 curr = 0;
+    u32 i_frame = 0;
     for (u32 frame = 0; frame < header.total_frames;)
     {
         fread(buffer, 1, sizeof(HVQM2Record), f);
@@ -473,11 +586,11 @@ int main(int argc, char **argv)
             continue;
         switch (record.format)
         {
-            case HVQM2_VIDEO_KEYFRAME: putchar('I'); break;
+            case HVQM2_VIDEO_KEYFRAME: putchar('I'); ++i_frame; break;
             case HVQM2_VIDEO_PREDICT:  putchar('P'); break;
             case HVQM2_VIDEO_HOLD:     putchar('H'); break;
             default:
-                fprintf(stderr, "invalid frame format");
+                fprintf(stderr, "invalid frame format\n");
                 exit(-1);
         }
         fflush(stdout);
@@ -487,20 +600,8 @@ int main(int argc, char **argv)
         hvqm2Decode2(buffer, record.format, (u32*)outbuf[curr], (u32*)outbuf[1 - curr], workbuf);
 #endif
 
-        char path[128];
-        snprintf(path, sizeof(path), "output/video_rgb_%i.ppm", frame);
-        FILE *outfile = fopen(path, "wb+");
-        fprintf(outfile, "P6\n%u %u\n255\n", header.width, header.height);
-        u8 temp[MAXWIDTH*MAXHEIGHT*3];
-        // remove alpha
-        for (u32 i = 0; i < header.width * header.height; ++i)
-        {
-            temp[3*i+0] = outbuf[curr][4*i+0];
-            temp[3*i+1] = outbuf[curr][4*i+1];
-            temp[3*i+2] = outbuf[curr][4*i+2];
-        }
-        fwrite(temp, header.width * header.height * 3, 1, outfile);
-        fclose(outfile);
+        if (record.format == HVQM2_VIDEO_KEYFRAME)
+            dumpRGB(&header, i_frame, outbuf[curr]);
 
         curr ^= 1;
         ++frame;
