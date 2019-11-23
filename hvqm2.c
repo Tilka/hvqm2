@@ -206,7 +206,7 @@ static s16 decodeDC(BitBuffer *buf)
 }
 
 // done
-// HVQM4: kinda like getDeltaDC
+// only used by P frames
 static u8 getDeltaBN(u8 *rle, BitBuffer *val_buf, BitBuffer *rle_buf)
 {
     if (*rle)
@@ -363,6 +363,12 @@ static s16 getDeltaDC(int comp, int *rle)
     }
 }
 
+static u32 mean(u32 a, u32 b)
+{
+    // HVQM4: (a + b + 1) / 2
+    return (a + b) / 2;
+}
+
 static void IpicDcvDec()
 {
     u8 dcvalY = 0;
@@ -384,32 +390,32 @@ static void IpicDcvDec()
         dcvalU += getDeltaDC(1, &rleU); *dcbufU++ = dcvalU;
         dcvalV += getDeltaDC(2, &rleV); *dcbufV++ = dcvalV;
     }
+    dcvalY = *dcbufY_prev++;
+    dcvalU = *dcbufU_prev++;
+    dcvalV = *dcbufV_prev++;
     if (global.mcu411)
     {
         for (u32 h = 0; h < global.col_hblocks; ++h)
         {
-            dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY;
-            dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY;
+            dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = mean(dcvalY, *dcbufY_prev++);
+            dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = mean(dcvalY, *dcbufY_prev++);
         }
     }
     for (u32 v = 0; v < global.col_vblocks; ++v)
     {
-        dcvalY = *dcbufY_prev++;
-        dcvalU = *dcbufU_prev++;
-        dcvalV = *dcbufV_prev++;
         for (u32 h = 0; h < global.col_hblocks; ++h)
         {
-            dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = (dcvalY + *dcbufY_prev++ + 1) / 2;
-            dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = (dcvalY + *dcbufY_prev++ + 1) / 2;
-            dcvalU += getDeltaDC(1, &rleU); *dcbufU++ = dcvalU; dcvalU = (dcvalU + *dcbufU_prev++ + 1) / 2;
-            dcvalV += getDeltaDC(2, &rleV); *dcbufV++ = dcvalV; dcvalV = (dcvalV + *dcbufV_prev++ + 1) / 2;
+            dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = mean(dcvalY, *dcbufY_prev++);
+            dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = mean(dcvalY, *dcbufY_prev++);
+            dcvalU += getDeltaDC(1, &rleU); *dcbufU++ = dcvalU; dcvalU = mean(dcvalU, *dcbufU_prev++);
+            dcvalV += getDeltaDC(2, &rleV); *dcbufV++ = dcvalV; dcvalV = mean(dcvalV, *dcbufV_prev++);
         }
         if (global.mcu411)
         {
             for (u32 h = 0; h < global.col_hblocks; ++h)
             {
-                dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = (dcvalY + *dcbufY_prev++ + 1) / 2;
-                dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = (dcvalY + *dcbufY_prev++ + 1) / 2;
+                dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = mean(dcvalY, *dcbufY_prev++);
+                dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = mean(dcvalY, *dcbufY_prev++);
             }
         }
     }
