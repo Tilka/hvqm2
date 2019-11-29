@@ -69,8 +69,8 @@ static struct
     Tree scale_tree;
     Tree movevector_tree;
     u16 Huff_nodeno;
-    u16 dc_max;
-    u16 dc_min;
+    s16 dc_max;
+    s16 dc_min;
     u8 *basis[3];
     u8 *dcbuf[3];
     struct wcode
@@ -230,10 +230,8 @@ static s16 decodeHuff2(BitBuffer *buf, Tree *tree)
 // HVQM4: kinda like decodeSOvfSym
 static s16 decodeDC(BitBuffer *buf)
 {
-    s16 sum = 0;
-    s16 value;
-    value = decodeHuff2(buf, &global.dcval_tree);
-    sum = value;
+    s16 value = decodeHuff2(buf, &global.dcval_tree);
+    s16 sum = value;
     // '=='!
     if (value == global.dc_min || value == global.dc_max)
     {
@@ -410,11 +408,11 @@ static u32 my_hvqm2Setup2(HVQM2Header *header, u32 outbufWidth)
     global.lum_hblocks = header->width / 4;
     global.lum_vblocks = header->height / 4;
     global.lum_totalblocks = global.lum_hblocks * global.lum_vblocks;
+    global.mcu411 = header->v_sampling_rate == 2;
     global.col_hblocks = header->width / 8;
-    global.col_vblocks = header->height / 8;
+    global.col_vblocks = header->height / (global.mcu411 ? 8 : 4);
     global.col_totalblocks = global.col_hblocks * global.col_vblocks;
     global.next_macroblk_line = global.fb_width * 8;
-    global.mcu411 = header->v_sampling_rate == 2;
     global.ColorConv = global.mcu411 ? ColorConv411 : ColorConv422;
     global.yshift = header->y_shiftnum;
     if (global.yshift == 8)
