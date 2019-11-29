@@ -10,6 +10,8 @@
 #pragma GCC diagnostic ignored "-Wunused-function"
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
+_Static_assert(sizeof(HVQM2Frame) == 0x34, "");
+
 typedef struct BitBuffer
 {
     u32 bit;
@@ -47,7 +49,7 @@ static u32 read32(void const *src)
 typedef struct Tree
 {
     s16 root;
-    u16 array[2][0x100];
+    u16 array[2][0x200];
 } Tree;
 
 static struct
@@ -73,12 +75,12 @@ static struct
     u8 *dcbuf[3];
     struct wcode
     {
-        u8 const *basis_ptr2;
-        u8 const *dcbuf_ptr2;
-        u8 const *basis_ptr;
-        u8 const *dcbuf_ptr;
-        u8 const *basis_next_line_ptr;
-        u8 const *dcbuf_next_line_ptr;
+        u8 const *basis_prev;
+        u8 const *dcbuf_prev;
+        u8 const *basis_curr;
+        u8 const *dcbuf_curr;
+        u8 const *basis_next;
+        u8 const *dcbuf_next;
         u8 unk[5];
     } u_wcode, v_wcode, y0wcode, y1wcode;
     u32 divT[0x200];
@@ -133,7 +135,7 @@ static void dumpPlanes(char const *dir)
 {
     static u32 frame = 0;
     ++frame;
-    for (int plane_idx = 0; plane_idx < 1; ++plane_idx)
+    for (int plane_idx = 0; plane_idx < 3; ++plane_idx)
     {
         char path[128];
         snprintf(path, 128, "%s/basis_%u_%c.ppm", dir, frame, "yuv"[plane_idx]);
@@ -213,6 +215,14 @@ static s16 decodeHuff(BitBuffer *buf, Tree *tree)
     s16 pos = tree->root;
     while (pos >= 0x100)
         pos = tree->array[getBit(buf)][pos];
+    return pos;
+}
+
+static s16 decodeHuff2(BitBuffer *buf, Tree *tree)
+{
+    s16 pos = tree->root;
+    while (pos >= 0x100)
+        pos = tree->array[getBit(buf)][pos];
     return tree->array[0][pos];
 }
 
@@ -222,14 +232,14 @@ static s16 decodeDC(BitBuffer *buf)
 {
     s16 sum = 0;
     s16 value;
-    value = decodeHuff(buf, &global.dcval_tree);
+    value = decodeHuff2(buf, &global.dcval_tree);
     sum = value;
-    // '==' ?!
+    // '=='!
     if (value == global.dc_min || value == global.dc_max)
     {
         do
         {
-            value = decodeHuff(buf, &global.dcval_tree);
+            value = decodeHuff2(buf, &global.dcval_tree);
             sum += value;
         } while (value <= global.dc_min || value >= global.dc_max);
     }
@@ -268,17 +278,106 @@ static void ColorConv411()
 }
 
 // HVQM4: kinda like IpicLineDec
-static void decLine()
+static void decLine(u32 *outbuf)
 {
     // TODO
     decBlockCPU();
 }
 
-// HVQM4: kinda like IpicPlaneDec
-static void decFrame()
+static void advance_y_wcode(u32 amount)
 {
-    // TODO
-    decLine();
+    global.y0wcode.basis_prev += amount;
+    global.y0wcode.dcbuf_prev += amount;
+    global.y0wcode.basis_curr += amount;
+    global.y0wcode.dcbuf_curr += amount;
+    global.y0wcode.basis_next += amount;
+    global.y0wcode.dcbuf_next += amount;
+    global.y1wcode.basis_prev += amount;
+    global.y1wcode.dcbuf_prev += amount;
+    global.y1wcode.basis_curr += amount;
+    global.y1wcode.dcbuf_curr += amount;
+    global.y1wcode.basis_next += amount;
+    global.y1wcode.dcbuf_next += amount;
+}
+
+// HVQM4: kinda like IpicPlaneDec
+static void decFrame(u32 *outbuf)
+{
+    // first line
+    global.u_wcode.basis_prev = global.basis[1];
+    global.u_wcode.dcbuf_prev = global.dcbuf[1];
+    global.u_wcode.basis_curr = global.basis[1];
+    global.u_wcode.dcbuf_curr = global.dcbuf[1];
+    global.u_wcode.basis_next = global.basis[1] + global.col_hblocks;
+    global.u_wcode.dcbuf_next = global.dcbuf[1] + global.col_hblocks;
+    global.v_wcode.basis_prev = global.basis[2];
+    global.v_wcode.dcbuf_prev = global.dcbuf[2];
+    global.v_wcode.basis_curr = global.basis[2];
+    global.v_wcode.dcbuf_curr = global.dcbuf[2];
+    global.v_wcode.basis_next = global.basis[2] + global.col_hblocks;
+    global.v_wcode.dcbuf_next = global.dcbuf[2] + global.col_hblocks;
+    global.y0wcode.basis_prev = global.basis[0];
+    global.y0wcode.dcbuf_prev = global.dcbuf[0];
+    global.y0wcode.basis_curr = global.basis[0];
+    global.y0wcode.dcbuf_curr = global.dcbuf[0];
+    global.y0wcode.basis_next = global.basis[0] + global.lum_hblocks;
+    global.y0wcode.dcbuf_next = global.dcbuf[0] + global.lum_hblocks;
+    if (global.mcu411)
+    {
+        global.y1wcode.basis_prev = global.basis[0];
+        global.y1wcode.dcbuf_prev = global.dcbuf[0];
+        global.y1wcode.basis_curr = global.basis[0] + global.lum_hblocks;
+        global.y1wcode.dcbuf_curr = global.dcbuf[0] + global.lum_hblocks;
+        global.y1wcode.basis_next = global.basis[0] + global.lum_hblocks + global.lum_hblocks;
+        global.y1wcode.dcbuf_next = global.dcbuf[0] + global.lum_hblocks + global.lum_hblocks;
+    }
+    decLine(outbuf);
+
+    // advance
+    outbuf += global.mcu_v_pix;
+    global.u_wcode.basis_prev = global.basis[1];
+    global.u_wcode.dcbuf_prev = global.dcbuf[1];
+    global.v_wcode.basis_prev = global.basis[2];
+    global.v_wcode.dcbuf_prev = global.dcbuf[2];
+    if (global.mcu411)
+    {
+        advance_y_wcode(global.lum_hblocks);
+    }
+    else
+    {
+        global.y0wcode.basis_prev = global.basis[0];
+        global.y0wcode.dcbuf_prev = global.dcbuf[0];
+    }
+
+    // middle lines
+    for (u32 line = 1; line < global.col_vblocks - 1; ++line)
+    {
+        decLine(outbuf);
+        outbuf += global.mcu_v_pix;
+        if (global.mcu411)
+        {
+            advance_y_wcode(global.lum_hblocks);
+        }
+    }
+
+    // advance
+    global.u_wcode.basis_next = global.u_wcode.basis_curr;
+    global.u_wcode.dcbuf_next = global.u_wcode.dcbuf_curr;
+    global.v_wcode.basis_next = global.v_wcode.basis_curr;
+    global.v_wcode.dcbuf_next = global.v_wcode.dcbuf_curr;
+    if (global.mcu411)
+    {
+        global.y1wcode.basis_next = global.y1wcode.basis_curr;
+        global.y1wcode.dcbuf_next = global.y1wcode.dcbuf_curr;
+    }
+    else
+    {
+        global.y0wcode.basis_next = global.y0wcode.basis_curr;
+        global.y0wcode.dcbuf_next = global.y0wcode.dcbuf_curr;
+    }
+
+    // last line
+    decLine(outbuf);
 }
 
 // done
@@ -342,7 +441,7 @@ static u32 my_hvqm2Setup2(HVQM2Header *header, u32 outbufWidth)
     return header->total_frames;
 }
 
-// done
+// done, works
 static void Ipic_BasisNumDec()
 {
     u8 rle = 0;
@@ -384,7 +483,6 @@ static void Ipic_BasisNumDec()
 // TODO: verify type of `rle`
 static s16 getDeltaDC(int plane_idx, int *rle)
 {
-    //puts("getDeltaDC");
     if (*rle == 0)
     {
         s16 delta = decodeDC(&global.dcval_buf[plane_idx]);
@@ -439,6 +537,9 @@ static void IpicDcvDec()
     }
     for (u32 v = 0; v < global.col_vblocks - 1; ++v)
     {
+        dcvalY = *(dcbufY_prev - 1);
+        dcvalU = *(dcbufU_prev - 1);
+        dcvalV = *(dcbufV_prev - 1);
         for (u32 h = 0; h < global.col_hblocks; ++h)
         {
             dcvalY += getDeltaDC(0, &rleY); *dcbufY++ = dcvalY; dcvalY = mean(dcvalY, *dcbufY_prev++);
@@ -446,6 +547,7 @@ static void IpicDcvDec()
             dcvalU += getDeltaDC(1, &rleU); *dcbufU++ = dcvalU; dcvalU = mean(dcvalU, *dcbufU_prev++);
             dcvalV += getDeltaDC(2, &rleV); *dcbufV++ = dcvalV; dcvalV = mean(dcvalV, *dcbufV_prev++);
         }
+        dcvalY = *(dcbufY_prev - 1);
         if (global.mcu411)
         {
             for (u32 h = 0; h < global.col_hblocks; ++h)
@@ -469,7 +571,6 @@ static void HVQMDecodeIpic(HVQM2KeyFrame const *keyframe, void const *code)
     Ipic_BasisNumDec();
     IpicDcvDec();
     MakeNest();
-    dumpPlanes("/tmp/output/dcval");
 }
 
 static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code)
@@ -526,7 +627,7 @@ static void my_hvqm2Decode2(void const *code, u32 format, u32 *outbuf, u32 *prev
         HVQM2PredictFrame const *predict = code + sizeof(HVQM2Frame);
         HVQMDecodePpic(predict, code);
     }
-    decFrame();
+    decFrame(outbuf);
 }
 
 static void dumpRGB(HVQM2Header const *header, int frame, u8 const *outbuf)
