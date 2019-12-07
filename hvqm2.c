@@ -6,6 +6,7 @@
 #define MAXWIDTH 640
 #define MAXHEIGHT 480
 #define HVQM_DATASIZE_MAX 30000
+#define OUTPUT_DIR "output"
 
 #pragma GCC diagnostic ignored "-Wunused-function"
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -62,7 +63,7 @@ static struct
     BitBuffer scale_buf[3];
     BitBuffer dcval_buf[3];
     BitBuffer dcrun_buf[3];
-    u8 const *fixvl[3];
+    void const *fixvl[3];
     Tree dcval_tree;
     Tree basisnum_tree;
     Tree basisnumrun_tree;
@@ -75,12 +76,12 @@ static struct
     u8 *dcbuf[3];
     struct wcode
     {
-        u8 const *basis_prev_line;
-        u8 const *dcbuf_prev_line;
-        u8 const *basis_curr_line;
-        u8 const *dcbuf_curr_line;
-        u8 const *basis_next_line;
-        u8 const *dcbuf_next_line;
+        u8 *basis_prev_line;
+        u8 *dcbuf_prev_line;
+        u8 *basis_curr_line;
+        u8 *dcbuf_curr_line;
+        u8 *basis_next_line;
+        u8 *dcbuf_next_line;
         u8 basis_next;
         u8 dcbuf_next;
         u8 basis_curr;
@@ -137,16 +138,14 @@ static void dumpPlane(char const *path, u8 const *data, int plane_idx)
 }
 
 __attribute__((unused))
-static void dumpPlanes(char const *dir)
+static void dumpPlanes(u32 frame, u32 frame_type)
 {
-    static u32 frame = 0;
-    ++frame;
     for (int plane_idx = 0; plane_idx < 3; ++plane_idx)
     {
         char path[128];
-        snprintf(path, 128, "%s/basis_%u_%c.ppm", dir, frame, "yuv"[plane_idx]);
+        snprintf(path, 128, OUTPUT_DIR"/basis_%u_%c_%c.ppm", frame, "iph"[frame_type], "yuv"[plane_idx]);
         dumpPlane(path, global.basis[plane_idx], plane_idx);
-        snprintf(path, 128, "%s/dcbuf_%u_%c.ppm", dir, frame, "yuv"[plane_idx]);
+        snprintf(path, 128, OUTPUT_DIR "/dcbuf_%u_%c_%c.ppm", frame, "iph"[frame_type], "yuv"[plane_idx]);
         dumpPlane(path, global.dcbuf[plane_idx], plane_idx);
     }
 }
@@ -160,7 +159,7 @@ static u32 getBit(BitBuffer *buf)
         if (!buf->size)
         {
             fprintf(stderr, "error: BitBuffer overread\n");
-            exit(1);
+            //exit(1);
         }
         buf->size -= 4;
 #endif
@@ -254,7 +253,6 @@ static s16 decodeDC(BitBuffer *buf)
 }
 
 // done
-// only used by P frames
 static u8 getDeltaBN(u8 *rle, BitBuffer *val_buf, BitBuffer *rle_buf)
 {
     if (*rle)
@@ -270,43 +268,43 @@ static u8 getDeltaBN(u8 *rle, BitBuffer *val_buf, BitBuffer *rle_buf)
 
 static void WeightImBlock(u16 *pix, u8 curr, u8 top, u8 bottom, u8 left, u8 right)
 {
-    u32 const t5 = curr * 2;
-    u32 v1 = (curr * 8) + 4;
-    u32 const s2 = bottom + right - t5;
-    pix[5] = (v1 - s2) / 8;
-    u32 const t3 = top + right - t5;
-    pix[9] = (v1 - t3) / 8;
-    u32 a0 = top - bottom;
-    u32 v0 = left - right;
-    u32 const s3 = a0 + v0;
-    u32 const t1 = top + left - t5;
-    u32 const t0 = v1 + s3;
-    pix[0] = (t0 + t1) / 8;
-    u32 const t4 = top - left;
-    pix[1] = (t0 + t4) / 8;
-    a0 -= v0;
-    u32 const a1 = top - right;
-    u32 const a2 = v1 + a0;
-    pix[2] = (a2 + a1) / 8;
-    pix[3] = (a2 + t3) / 8;
+    u32 const tmb = top - bottom;
+    u32 const lmr = left - right;
+    u32 const vph = tmb + lmr;
+    u32 const vmh = tmb - lmr;
 
-    pix[4] = (t0 - t4) / 8;
-    v0 = left + bottom - t5;
-    pix[6] = (v1 - v0) / 8;
-    pix[7] = (a2 - a1) / 8;
+    u32 const c2 = curr * 2;
+    u32 const c8 = (curr * 8) + 4;
 
-    u32 const a3 = bottom - left;
-    a0 = v1 - a0;
-    pix[8] = (a0 - a3) / 8;
-    pix[10] = (v1 - t1) / 8;
-    u32 t2 = bottom - right;
-    v1 -= s3;
-    pix[11] = (v1 - t2) / 8;
+    u32 const tpl = top    + left  - c2;
+    u32 const tpr = top    + right - c2;
+    u32 const bpr = bottom + right - c2;
+    u32 const bpl = bottom + left  - c2;
 
-    pix[12] = (a0 - v0) / 8;
-    pix[13] = (a0 + a3) / 8;
-    pix[14] = (v1 + t2) / 8;
-    pix[15] = (v1 + s2) / 8;
+    u32 const tml = top    - left;
+    u32 const tmr = top    - right;
+    u32 const bmr = bottom - right;
+    u32 const bml = bottom - left;
+
+    pix[0] = (c8 + vph + tpl) / 8;
+    pix[1] = (c8 + vph + tml) / 8;
+    pix[2] = (c8 + vmh + tmr) / 8;
+    pix[3] = (c8 + vmh + tpr) / 8;
+
+    pix[4] = (c8 + vph - tml) / 8;
+    pix[5] = (c8 - bpr      ) / 8;
+    pix[6] = (c8 - bpl      ) / 8;
+    pix[7] = (c8 + vmh - tmr) / 8;
+
+    pix[8]  = (c8 - vmh - bml) / 8;
+    pix[9]  = (c8 - tpr      ) / 8;
+    pix[10] = (c8 - tpl      ) / 8;
+    pix[11] = (c8 - vph - bmr) / 8;
+
+    pix[12] = (c8 - vmh + bpl) / 8;
+    pix[13] = (c8 - vmh + bml) / 8;
+    pix[14] = (c8 - vph + bmr) / 8;
+    pix[15] = (c8 - vph + bpr) / 8;
 }
 
 // HVQM4: kinda like IpicBlockDec
@@ -314,7 +312,7 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
 {
     if (wcode->basis_curr == 0)
     {
-        putchar('W');
+        //putchar('W');
         u8 curr   =  wcode->dcbuf_curr;
         u8 right  =  wcode->basis_next      ? wcode->dcbuf_curr :  wcode->dcbuf_next;
         u8 top    = *wcode->basis_prev_line ? wcode->dcbuf_curr : *wcode->dcbuf_prev_line;
@@ -323,24 +321,74 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
         WeightImBlock(pix, curr, top, bottom, left, right);
         wcode->dcbuf_prev = wcode->dcbuf_curr;
     }
-    else if (wcode->basis_curr == 8)
-    {
-        // HVQM4: OrgBlock (but on block type 6)
-        putchar('O');
-        for (u32 i = 0; i < 16; ++i)
-            *pix++ = *global.fixvl[plane_idx]++;
-    }
     else
     {
-        for (u32 i = 0; i < wcode->basis_curr; ++i)
+        if (wcode->basis_curr == 8)
+        {
+            // HVQM4: OrgBlock (but on block type 6)
+            putchar('O');
+            for (u32 i = 0; i < 16; ++i)
+                *pix++ = *(u8*)global.fixvl[plane_idx]++;
+        }
+        else
         {
             // HVQM4: IntraAotBlock
-            putchar('A');
+            //putchar('A');
             for (u32 i = 0; i < 16; ++i)
-                pix[i] = 0;//wcode->dcbuf_curr;
-            // TODO
+                pix[i] = wcode->dcbuf_curr;
+            for (u32 i = 0; i < wcode->basis_curr; ++i)
+            {
+                //printf("getting basis scale %u/%u for plane %u\n", i, wcode->basis_curr, plane_idx);
+                s16 scale = decodeHuff2(&global.scale_buf[plane_idx], &global.scale_tree);
+                u16 bits = read16(global.fixvl[plane_idx]);
+                global.fixvl[plane_idx] += 2;
+                u32 x_stride = ((bits >> 0) & 1) + 1;
+                u32 y_stride = ((bits >> 1) & 1) + 1;
+                u32 nest_pos_x, nest_pos_y;
+                if (global.yshift == 8)
+                {
+                    nest_pos_y = ((bits >> 8) & 0x1F);
+                    nest_pos_x = ((bits >> 2) & 0x3F);
+                }
+                else
+                {
+                    nest_pos_y = ((bits >> 7) & 0x3F);
+                    nest_pos_x = ((bits >> 2) & 0x1F);
+                }
+                u16 tmp[4][4];
+                u8 const *nest = global.nest + nest_pos_y * global.nest_w + nest_pos_x;
+                s32 sum = 0;
+                for (int y = 0; y < 4; ++y)
+                {
+                    for (int x = 0; x < 4; ++x)
+                    {
+                        u8 nest_value = nest[y * y_stride + x * x_stride];
+                        tmp[y][x] = nest_value;
+                        sum += nest_value;
+                    }
+                }
+                s32 mean = (sum + 8) >> 4;
+                if (mean < 0)
+                    mean = -mean;
+                s16 min = mean;
+                for (int y = 0; y < 4; ++y)
+                {
+                    for (int x = 0; x < 4; ++x)
+                    {
+                        tmp[y][x] -= mean;
+                        s16 value = tmp[y][x];
+
+                    }
+                }
+                // TODO
+            }
         }
+        wcode->dcbuf_prev = wcode->dcbuf_next;
     }
+    wcode->basis_prev_line++;
+    wcode->dcbuf_prev_line++;
+    wcode->basis_next_line++;
+    wcode->dcbuf_next_line++;
 }
 
 static u32 yuv2rgba(s16 y, s16 u, s16 v)
@@ -362,7 +410,7 @@ static u32 yuv2rgba(s16 y, s16 u, s16 v)
     //g = global.clipT[yy];
     //b = global.clipT[z];
     return a << 24 | b << 16 | g << 8 | r;
-    return r << 24 | g << 16 | b << 8 | a;
+    //return r << 24 | g << 16 | b << 8 | a;
 }
 
 static void ColorConv422(u32 *outbuf, u16 const *pix_y, u16 const *pix_u, u16 const *pix_v)
@@ -858,9 +906,121 @@ static void HVQMDecodeIpic(HVQM2KeyFrame const *keyframe, void const *code)
     MakeNest(read16(&keyframe->nest_start_x), read16(&keyframe->nest_start_y));
 }
 
-static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code)
+static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, void *outbuf)
 {
-    // TODO
+    setCode(&global.movevector_buf, code + read32(&predict->movevector_offset));
+    readTree(&global.movevector_buf, &global.movevector_tree);
+
+    setCode(&global.macroblock_buf, code + read32(&predict->macroblock_offset));
+
+    global.y0wcode.basis_curr_line = global.basis[0];
+    global.y0wcode.dcbuf_curr_line = global.dcbuf[0];
+    global.u_wcode.basis_curr_line = global.basis[1];
+    global.u_wcode.dcbuf_curr_line = global.dcbuf[1];
+    global.v_wcode.basis_curr_line = global.basis[2];
+    global.v_wcode.dcbuf_curr_line = global.dcbuf[2];
+
+    global.y0wcode.basis_next_line = global.basis[0] + global.lum_hblocks;
+    global.y0wcode.dcbuf_next_line = global.dcbuf[0] + global.lum_hblocks;
+    if (!global.mcu411)
+    {
+        global.u_wcode.basis_next_line = global.basis[1] + global.col_hblocks;
+        global.u_wcode.dcbuf_next_line = global.dcbuf[1] + global.col_hblocks;
+        global.v_wcode.basis_next_line = global.basis[2] + global.col_hblocks;
+        global.v_wcode.dcbuf_next_line = global.dcbuf[2] + global.col_hblocks;
+    }
+
+    u8 rle_lum = 0;
+    u8 rle_col = 0;
+    u8 dc_y = 0, dc_u = 0, dc_v = 0;
+    void *outbuf_line = outbuf;
+    for (u32 y = 0; y < global.im_height; y += 8)
+    {
+        void *outbuf_pos = outbuf_line;
+        for (u32 x = 0; x < global.im_width; x += 8)
+        {
+            if (getBit(&global.macroblock_buf))
+            {
+                if (getBit(&global.macroblock_buf))
+                {
+                    dc_y += decodeDC(&global.dcval_buf[0]);
+                    dc_u += decodeDC(&global.dcval_buf[1]);
+                    dc_v += decodeDC(&global.dcval_buf[2]);
+                    *global.y0wcode.basis_curr_line++ = 0;
+                    *global.y0wcode.basis_curr_line++ = 0;
+                    *global.y0wcode.dcbuf_curr_line++ = dc_y;
+                    *global.y0wcode.dcbuf_curr_line++ = dc_y;
+                    *global.y0wcode.basis_next_line++ = 0;
+                    *global.y0wcode.basis_next_line++ = 0;
+                    *global.y0wcode.dcbuf_next_line++ = dc_y;
+                    *global.y0wcode.dcbuf_next_line++ = dc_y;
+                    *global.u_wcode.basis_curr_line++ = 0;
+                    *global.u_wcode.dcbuf_curr_line++ = dc_u;
+                    *global.v_wcode.basis_curr_line++ = 0;
+                    *global.v_wcode.dcbuf_curr_line++ = dc_v;
+                    if (!global.mcu411)
+                    {
+                        *global.u_wcode.basis_curr_line++ = 0;
+                        *global.u_wcode.dcbuf_curr_line++ = dc_u;
+                        *global.v_wcode.basis_curr_line++ = 0;
+                        *global.v_wcode.dcbuf_curr_line++ = dc_v;
+                    }
+                }
+                else
+                {
+                    dc_y += decodeDC(&global.dcval_buf[0]);
+                    dc_u += decodeDC(&global.dcval_buf[1]);
+                    dc_v += decodeDC(&global.dcval_buf[2]);
+                    *global.y0wcode.basis_curr_line++ = getDeltaBN(&rle_lum, &global.basisnum_buf[0], &global.basisnumrun_buf[0]);
+                    *global.y0wcode.basis_curr_line++ = getDeltaBN(&rle_lum, &global.basisnum_buf[0], &global.basisnumrun_buf[0]);
+                    *global.y0wcode.dcbuf_curr_line++ = dc_y;
+                    *global.y0wcode.dcbuf_curr_line++ = dc_y;
+                    *global.y0wcode.basis_next_line++ = getDeltaBN(&rle_lum, &global.basisnum_buf[0], &global.basisnumrun_buf[0]);
+                    *global.y0wcode.basis_next_line++ = getDeltaBN(&rle_lum, &global.basisnum_buf[0], &global.basisnumrun_buf[0]);
+                    *global.y0wcode.dcbuf_next_line++ = dc_y;
+                    *global.y0wcode.dcbuf_next_line++ = dc_y;
+                    u8 deltaBN = getDeltaBN(&rle_col, &global.basisnum_buf[1], &global.basisnumrun_buf[1]);
+                    *global.u_wcode.basis_curr_line++ = deltaBN;
+                    *global.u_wcode.dcbuf_curr_line++ = dc_u;
+                    *global.v_wcode.basis_curr_line++ = deltaBN;
+                    *global.v_wcode.dcbuf_curr_line++ = dc_v;
+                    if (!global.mcu411)
+                    {
+                        deltaBN = getDeltaBN(&rle_col, &global.basisnum_buf[1], &global.basisnumrun_buf[1]);
+                        *global.u_wcode.basis_curr_line++ = deltaBN;
+                        *global.u_wcode.dcbuf_curr_line++ = dc_u;
+                        *global.v_wcode.basis_curr_line++ = deltaBN;
+                        *global.v_wcode.dcbuf_curr_line++ = dc_v;
+                    }
+                }
+            }
+            else
+            {
+                    *global.y0wcode.basis_curr_line++ = 0;
+                    *global.y0wcode.basis_curr_line++ = 0;
+                    *global.y0wcode.dcbuf_curr_line++ = dc_y;
+                    *global.y0wcode.dcbuf_curr_line++ = dc_y;
+                    *global.y0wcode.basis_curr_line++ = 0;
+                    *global.y0wcode.basis_curr_line++ = 0;
+                    *global.y0wcode.dcbuf_next_line++ = dc_y;
+                    *global.y0wcode.dcbuf_next_line++ = dc_y;
+
+                    *global.u_wcode.basis_curr_line++ = 0;
+                    *global.u_wcode.dcbuf_curr_line++ = dc_u;
+                    *global.v_wcode.basis_curr_line++ = 0;
+                    *global.v_wcode.dcbuf_curr_line++ = dc_v;
+                    if (!global.mcu411)
+                    {
+                        *global.u_wcode.basis_curr_line++ = 0;
+                        *global.u_wcode.dcbuf_curr_line++ = dc_u;
+                        *global.v_wcode.basis_curr_line++ = 0;
+                        *global.v_wcode.dcbuf_curr_line++ = dc_v;
+                    }
+            }
+            outbuf_pos += 32;
+        }
+        outbuf_line += global.next_macroblk_line;
+    }
 }
 
 static void HVQMDecodeHpic(u32 *outbuf, u32 const *previm)
@@ -911,15 +1071,15 @@ static void my_hvqm2Decode2(void const *code, u32 format, u32 *outbuf, u32 *prev
     else
     {
         HVQM2PredictFrame const *predict = code + sizeof(HVQM2Frame);
-        HVQMDecodePpic(predict, code);
+        HVQMDecodePpic(predict, code, outbuf);
         //decFrame(outbuf);
     }
 }
 
-static void dumpRGB(HVQM2Header const *header, int frame, u8 const *outbuf)
+static void dumpRGB(HVQM2Header const *header, u32 frame, u32 frame_type, u8 const *outbuf)
 {
     char path[128];
-    snprintf(path, sizeof(path), "output/video_rgb_%i.ppm", frame);
+    snprintf(path, sizeof(path), OUTPUT_DIR "/video_%i_%c.ppm", frame, "iph"[frame_type]);
     FILE *outfile = fopen(path, "wb+");
     fprintf(outfile, "P6\n%u %u\n255\n", header->width, header->height);
     u8 temp[MAXWIDTH*MAXHEIGHT*3];
@@ -996,8 +1156,7 @@ int main(int argc, char **argv)
 #endif
 
     u32 curr = 0;
-    u32 i_frame = 0;
-    for (u32 frame = 0; frame < header.total_frames;)
+    for (u32 frame = 0; frame < header.total_frames; ++frame)
     {
         fread(buffer, 1, sizeof(HVQM2Record), f);
         record.type   = read16(&buffer[0]);
@@ -1013,7 +1172,7 @@ int main(int argc, char **argv)
             continue;
         switch (record.format)
         {
-            case HVQM2_VIDEO_KEYFRAME: putchar('I'); ++i_frame; break;
+            case HVQM2_VIDEO_KEYFRAME: putchar('I'); break;
             case HVQM2_VIDEO_PREDICT:  putchar('P'); break;
             case HVQM2_VIDEO_HOLD:     putchar('H'); break;
             default:
@@ -1027,7 +1186,7 @@ int main(int argc, char **argv)
         hvqm2Decode2(buffer, record.format, (u32*)outbuf[curr], (u32*)outbuf[1 - curr], workbuf);
 #endif
 
-        if (record.format == HVQM2_VIDEO_KEYFRAME)
+        //if (record.format != HVQM2_VIDEO_HOLD)
         {
             u8 *wb = (u8*)workbuf;
             global.basis[0] = wb; wb += global.lum_totalblocks;
@@ -1036,13 +1195,12 @@ int main(int argc, char **argv)
             global.dcbuf[1] = wb; wb += global.col_totalblocks;
             global.basis[2] = wb; wb += global.col_totalblocks;
             global.dcbuf[2] = wb;
-            //dumpPlanes("/tmp/output");
-            dumpRGB(&header, i_frame, outbuf[curr]);
-            puts("");
+            dumpPlanes(frame, record.format);
+            dumpRGB(&header, frame, record.format, outbuf[curr]);
+            //puts("");
         }
 
         curr ^= 1;
-        ++frame;
     }
     puts("");
 }
