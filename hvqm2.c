@@ -706,12 +706,12 @@ static u32 my_hvqm2Setup2(HVQM2Header *header, u32 outbufWidth)
     global.v_sampling_rate = header->v_sampling_rate;
     global.mcu_h_pix = header->h_sampling_rate * 4;
     global.mcu_v_pix = header->v_sampling_rate * 4 * global.fb_width;
-    global.lum_hblocks = header->width / 4;
-    global.lum_vblocks = header->height / 4;
+    global.lum_hblocks = (s32)header->width >> 2;
+    global.lum_vblocks = (s32)header->height >> 2;
     global.lum_totalblocks = global.lum_hblocks * global.lum_vblocks;
     global.mcu411 = header->v_sampling_rate == 2;
-    global.col_hblocks = header->width / 8;
-    global.col_vblocks = header->height / (global.mcu411 ? 8 : 4);
+    global.col_hblocks = (s32)header->width >> 3;
+    global.col_vblocks = (s32)header->height >> (global.mcu411 ? 3 : 2);
     global.col_totalblocks = global.col_hblocks * global.col_vblocks;
     global.next_macroblk_line = global.fb_width * 8;
     global.ColorConv = global.mcu411 ? ColorConv411 : ColorConv422;
