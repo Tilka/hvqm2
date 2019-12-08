@@ -338,8 +338,6 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
                 pix[i] = wcode->dcbuf_curr;
             for (u32 i = 0; i < wcode->basis_curr; ++i)
             {
-                //printf("getting basis scale %u/%u for plane %u\n", i, wcode->basis_curr, plane_idx);
-                s16 scale = decodeHuff2(&global.scale_buf[plane_idx], &global.scale_tree);
                 u16 bits = read16(global.fixvl[plane_idx]);
                 global.fixvl[plane_idx] += 2;
                 u32 x_stride = ((bits >> 0) & 1) + 1;
@@ -355,33 +353,47 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
                     nest_pos_y = ((bits >> 7) & 0x3F);
                     nest_pos_x = ((bits >> 2) & 0x1F);
                 }
-                u16 tmp[4][4];
+                s16 tmp[4][4];
                 u8 const *nest = global.nest + nest_pos_y * global.nest_w + nest_pos_x;
                 s32 sum = 0;
                 for (int y = 0; y < 4; ++y)
                 {
                     for (int x = 0; x < 4; ++x)
                     {
-                        u8 nest_value = nest[y * y_stride + x * x_stride];
+                        // FIXME?
+                        u8 nest_value = nest[y * y_stride * global.nest_w + x * x_stride];
                         tmp[y][x] = nest_value;
                         sum += nest_value;
                     }
                 }
+                // FIXME?
                 s32 mean = (sum + 8) >> 4;
-                if (mean < 0)
-                    mean = -mean;
-                s16 min = mean;
+                s16 max = tmp[0][0] - mean;
+                if (max < 0)
+                    max = -max;
                 for (int y = 0; y < 4; ++y)
                 {
                     for (int x = 0; x < 4; ++x)
                     {
                         tmp[y][x] -= mean;
                         s16 value = tmp[y][x];
-
+                        if (value < 0)
+                            value = -value;
+                        if (max < value)
+                            max = value;
                     }
                 }
-                // TODO
+                s32 foo = bits >> 13;
+                s32 scale = decodeHuff2(&global.scale_buf[plane_idx], &global.scale_tree);
+                s32 div = global.divT[(u16)max];
+                s32 bar = (foo + scale) * div;
+                u16 *out = pix;
+                for (int y = 0; y < 4; ++y)
+                    for (int x = 0; x < 4; ++x)
+                        *out++ += (tmp[y][x] * bar + 512) >> 10;
             }
+            for (int j = 0; j < 16; ++j)
+                pix[j] = 0;
         }
         wcode->dcbuf_prev = wcode->dcbuf_next;
     }
@@ -671,7 +683,7 @@ static void decFrame(u32 *outbuf)
 static void my_hvqm2Init2(u8 alpha)
 {
     global.pix_alpha = alpha;
-    for (s32 i = -0x100; i < 0x100; ++i)
+    for (s32 i = -0x100; i < 0x200; ++i)
     {
         s32 j = i < 0 ? 0 : (i < 0x100 ? i : 255);
         global.clipT[0x100 + i] = j;
@@ -1186,7 +1198,7 @@ int main(int argc, char **argv)
         hvqm2Decode2(buffer, record.format, (u32*)outbuf[curr], (u32*)outbuf[1 - curr], workbuf);
 #endif
 
-        //if (record.format != HVQM2_VIDEO_HOLD)
+        if (record.format == HVQM2_VIDEO_KEYFRAME)
         {
             u8 *wb = (u8*)workbuf;
             global.basis[0] = wb; wb += global.lum_totalblocks;
@@ -1197,7 +1209,6 @@ int main(int argc, char **argv)
             global.dcbuf[2] = wb;
             dumpPlanes(frame, record.format);
             dumpRGB(&header, frame, record.format, outbuf[curr]);
-            //puts("");
         }
 
         curr ^= 1;
