@@ -405,24 +405,18 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
 
 static u32 yuv2rgba(s16 y, s16 u, s16 v)
 {
-    //return y << 24 | u << 16 | v << 8 | global.pix_alpha;
-    // ITU-R version from Wikipedia
-    //printf("y=%u u=%u v=%u\n", y, u, v);
+    // ITU-R formula in 10.6-bit fixed-point
     u -= 128;
     v -= 128;
-    u32 r = y + v + (v >> 2) + (v >> 3) + (v >> 5);
-    u32 g = y - ((u >> 2) + (u >> 4) + (u >> 5)) - ((v >> 1) + (v >> 3) + (v >> 4) + (v >> 5));
-    u32 b = y + u + (u >> 1) + (u >> 2) + (u >> 6);
-    u32 a = global.pix_alpha;
-    r &= 0xFF;
-    g &= 0xFF;
-    b &= 0xFF;
-    //printf("x=%u y=%u z=%u\n", x, yy, z);
-    //r = global.clipT[x];
-    //g = global.clipT[yy];
-    //b = global.clipT[z];
+    s32 y6 = y << 6;
+    s16 r16 = 0x4020 + v * 90;
+    u8 r = global.clipT[(y6 + r16) >> 6];
+    s16 g16 = 0x4020 - v * 46 - u * 22;
+    u8 g = global.clipT[(y6 + g16) >> 6];
+    s16 b16 = 0x4020 + u * 113;
+    u8 b = global.clipT[(y6 + b16) >> 6];
+    u8 a = global.pix_alpha;
     return a << 24 | b << 16 | g << 8 | r;
-    //return r << 24 | g << 16 | b << 8 | a;
 }
 
 static void ColorConv422(u32 *outbuf, u16 const *pix_y, u16 const *pix_u, u16 const *pix_v)
