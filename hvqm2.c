@@ -314,9 +314,9 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
     {
         //putchar('W');
         u8 curr   =  wcode->dcbuf_curr;
-        u8 right  =  wcode->basis_next      ? wcode->dcbuf_curr :  wcode->dcbuf_next;
-        u8 top    = *wcode->basis_prev_line ? wcode->dcbuf_curr : *wcode->dcbuf_prev_line;
-        u8 bottom = *wcode->basis_next_line ? wcode->dcbuf_curr : *wcode->dcbuf_next_line;
+        u8 right  =  wcode->basis_next      == 0 ?  wcode->dcbuf_next      : curr;
+        u8 top    = *wcode->basis_prev_line == 0 ? *wcode->dcbuf_prev_line : curr;
+        u8 bottom = *wcode->basis_next_line == 0 ? *wcode->dcbuf_next_line : curr;
         u8 left   =  wcode->dcbuf_prev;
         WeightImBlock(pix, curr, top, bottom, left, right);
         wcode->dcbuf_prev = wcode->dcbuf_curr;
@@ -429,23 +429,32 @@ static void ColorConv411(u32 *outbuf, u16 const *pix_y, u16 const *pix_u, u16 co
 {
     u16 const *pix_y0 = pix_y;
     u16 const *pix_y1 = pix_y + 16;
-    for (u32 i = 0; i < 4; ++i)
+    for (u32 k = 0; k < 2; ++k)
     {
-        for (u32 j = 0; j < 4; ++j)
-            outbuf[j] = yuv2rgba(*pix_y0++, pix_u[i], pix_v[i]);
-        for (u32 j = 4; j < 8; ++j)
-            outbuf[j] = yuv2rgba(*pix_y1++, pix_u[i], pix_v[i]);
-        outbuf += global.fb_width;
-    }
-    pix_y0 = pix_y + 32;
-    pix_y1 = pix_y + 48;
-    for (u32 i = 0; i < 4; ++i)
-    {
-        for (u32 j = 0; j < 4; ++j)
-            outbuf[j] = yuv2rgba(*pix_y0++, pix_u[i], pix_v[i]);
-        for (u32 j = 4; j < 8; ++j)
-            outbuf[j] = yuv2rgba(*pix_y1++, pix_u[i], pix_v[i]);
-        outbuf += global.fb_width;
+        for (u32 i = 0; i < 2; ++i)
+        {
+            for (u32 n = 0; n < 2; ++n)
+            {
+                u32 *out = outbuf;
+                u16 const *u = pix_u;
+                u16 const *v = pix_v;
+                for (u32 j = 0; j < 2; ++j)
+                {
+                    *out++ = yuv2rgba(*pix_y0++, *u,   *v);
+                    *out++ = yuv2rgba(*pix_y0++, *u++, *v++);
+                }
+                for (u32 j = 0; j < 2; ++j)
+                {
+                    *out++ = yuv2rgba(*pix_y1++, *u,   *v);
+                    *out++ = yuv2rgba(*pix_y1++, *u++, *v++);
+                }
+                outbuf += global.fb_width;
+            }
+            pix_u += 4;
+            pix_v += 4;
+        }
+        pix_y0 += 16;
+        pix_y1 += 16;
     }
 }
 
@@ -493,23 +502,23 @@ static void decLine(u32 *outbuf)
         {
             advance_wcode(&global.y0wcode, 2);
             global.y0wcode.basis_next = *global.y0wcode.basis_curr_line;
-            global.y0wcode.dcbuf_prev   = *global.y0wcode.dcbuf_curr_line;
-            global.y0wcode.dcbuf_next   = *global.y0wcode.dcbuf_curr_line;
+            global.y0wcode.dcbuf_prev = *global.y0wcode.dcbuf_curr_line;
+            global.y0wcode.dcbuf_next = *global.y0wcode.dcbuf_curr_line;
             if (global.mcu411)
             {
                 advance_wcode(&global.y1wcode, 2);
                 global.y1wcode.basis_next = *global.y1wcode.basis_curr_line;
-                global.y1wcode.dcbuf_prev   = *global.y1wcode.dcbuf_curr_line;
-                global.y1wcode.dcbuf_next   = *global.y1wcode.dcbuf_curr_line;
+                global.y1wcode.dcbuf_prev = *global.y1wcode.dcbuf_curr_line;
+                global.y1wcode.dcbuf_next = *global.y1wcode.dcbuf_curr_line;
             }
             advance_wcode(&global.u_wcode, 1);
             global.u_wcode.basis_next = *global.u_wcode.basis_curr_line;
-            global.u_wcode.dcbuf_prev   = *global.u_wcode.dcbuf_curr_line;
-            global.u_wcode.dcbuf_next   = *global.u_wcode.dcbuf_curr_line;
+            global.u_wcode.dcbuf_prev = *global.u_wcode.dcbuf_curr_line;
+            global.u_wcode.dcbuf_next = *global.u_wcode.dcbuf_curr_line;
             advance_wcode(&global.v_wcode, 1);
             global.v_wcode.basis_next = *global.v_wcode.basis_curr_line;
-            global.v_wcode.dcbuf_prev   = *global.v_wcode.dcbuf_curr_line;
-            global.v_wcode.dcbuf_next   = *global.v_wcode.dcbuf_curr_line;
+            global.v_wcode.dcbuf_prev = *global.v_wcode.dcbuf_curr_line;
+            global.v_wcode.dcbuf_next = *global.v_wcode.dcbuf_curr_line;
         }
         else
         {
@@ -556,35 +565,35 @@ static void decLine(u32 *outbuf)
     }
     else
     {
-        global.y0wcode.basis_curr  = global.y0wcode.basis_next;
+        global.y0wcode.basis_curr = global.y0wcode.basis_next;
         global.y0wcode.dcbuf_curr = global.y0wcode.dcbuf_next;
         global.y0wcode.basis_curr_line++;
         global.y0wcode.dcbuf_curr_line++;
         decBlockCPU(global.pix_y + 0*16, &global.y0wcode, 0);
-        global.y0wcode.basis_curr  = global.y0wcode.basis_next;
+        global.y0wcode.basis_curr = global.y0wcode.basis_next;
         global.y0wcode.dcbuf_curr = global.y0wcode.dcbuf_next;
         global.y0wcode.basis_curr_line++;
         global.y0wcode.dcbuf_curr_line++;
         decBlockCPU(global.pix_y + 1*16, &global.y0wcode, 0);
         if (global.mcu411)
         {
-            global.y1wcode.basis_curr  = global.y1wcode.basis_next;
+            global.y1wcode.basis_curr = global.y1wcode.basis_next;
             global.y1wcode.dcbuf_curr = global.y1wcode.dcbuf_next;
             global.y1wcode.basis_curr_line++;
             global.y1wcode.dcbuf_curr_line++;
             decBlockCPU(global.pix_y + 2*16, &global.y1wcode, 0);
-            global.y1wcode.basis_curr  = global.y1wcode.basis_next;
+            global.y1wcode.basis_curr = global.y1wcode.basis_next;
             global.y1wcode.dcbuf_curr = global.y1wcode.dcbuf_next;
             global.y1wcode.basis_curr_line++;
             global.y1wcode.dcbuf_curr_line++;
             decBlockCPU(global.pix_y + 3*16, &global.y1wcode, 0);
         }
-        global.u_wcode.basis_curr  = global.u_wcode.basis_next;
+        global.u_wcode.basis_curr = global.u_wcode.basis_next;
         global.u_wcode.dcbuf_curr = global.u_wcode.dcbuf_next;
         global.u_wcode.basis_curr_line++;
         global.u_wcode.dcbuf_curr_line++;
         decBlockCPU(global.pix_u, &global.u_wcode, 1);
-        global.v_wcode.basis_curr  = global.v_wcode.basis_next;
+        global.v_wcode.basis_curr = global.v_wcode.basis_next;
         global.v_wcode.dcbuf_curr = global.v_wcode.dcbuf_next;
         global.v_wcode.basis_curr_line++;
         global.v_wcode.dcbuf_curr_line++;
