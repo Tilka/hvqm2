@@ -551,10 +551,7 @@ static void decLine(u32 *outbuf)
     }
     else
     {
-        global.y0wcode.basis_curr = global.y0wcode.basis_next;
-        global.y0wcode.dcbuf_curr = global.y0wcode.dcbuf_next;
-        global.y0wcode.basis_curr_line++;
-        global.y0wcode.dcbuf_curr_line++;
+        update_wcode(&global.y0wcode);
         decBlockCPU(global.pix_y + 0*16, &global.y0wcode, 0);
         global.y0wcode.basis_curr = global.y0wcode.basis_next;
         global.y0wcode.dcbuf_curr = global.y0wcode.dcbuf_next;
@@ -563,10 +560,7 @@ static void decLine(u32 *outbuf)
         decBlockCPU(global.pix_y + 1*16, &global.y0wcode, 0);
         if (global.mcu411)
         {
-            global.y1wcode.basis_curr = global.y1wcode.basis_next;
-            global.y1wcode.dcbuf_curr = global.y1wcode.dcbuf_next;
-            global.y1wcode.basis_curr_line++;
-            global.y1wcode.dcbuf_curr_line++;
+            update_wcode(&global.y1wcode);
             decBlockCPU(global.pix_y + 2*16, &global.y1wcode, 0);
             global.y1wcode.basis_curr = global.y1wcode.basis_next;
             global.y1wcode.dcbuf_curr = global.y1wcode.dcbuf_next;
