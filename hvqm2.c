@@ -470,7 +470,7 @@ static void advance_wcode(struct wcode *wcode, u32 amount)
 
 static void update_wcode(struct wcode *wcode)
 {
-    wcode->basis_curr  = wcode->basis_next;
+    wcode->basis_curr = wcode->basis_next;
     wcode->dcbuf_curr = wcode->dcbuf_next;
     wcode->basis_curr_line++;
     wcode->dcbuf_curr_line++;
@@ -544,24 +544,10 @@ static void decLine(u32 *outbuf)
     if (global.y0wcode.basis_next == 0x80)
     {
         advance_wcode(&global.y0wcode, 2);
-        global.y0wcode.basis_next = *global.y0wcode.basis_curr_line;
-        global.y0wcode.dcbuf_prev = *global.y0wcode.dcbuf_curr_line;
-        global.y0wcode.dcbuf_next = *global.y0wcode.dcbuf_curr_line;
         if (global.mcu411)
-        {
             advance_wcode(&global.y1wcode, 2);
-            global.y1wcode.basis_next = *global.y1wcode.basis_curr_line;
-            global.y1wcode.dcbuf_prev = *global.y1wcode.dcbuf_curr_line;
-            global.y1wcode.dcbuf_next = *global.y1wcode.dcbuf_curr_line;
-        }
         advance_wcode(&global.u_wcode, 1);
-        global.u_wcode.basis_next = *global.u_wcode.basis_curr_line;
-        global.u_wcode.dcbuf_prev = *global.u_wcode.dcbuf_curr_line;
-        global.u_wcode.dcbuf_next = *global.u_wcode.dcbuf_curr_line;
         advance_wcode(&global.v_wcode, 1);
-        global.v_wcode.basis_next = *global.v_wcode.basis_curr_line;
-        global.v_wcode.dcbuf_prev = *global.v_wcode.dcbuf_curr_line;
-        global.v_wcode.dcbuf_next = *global.v_wcode.dcbuf_curr_line;
     }
     else
     {
