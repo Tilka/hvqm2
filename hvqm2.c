@@ -266,6 +266,8 @@ static u8 getDeltaBN(u8 *rle, BitBuffer *val_buf, BitBuffer *rle_buf)
     return value;
 }
 
+// TODO: the original decoder is making a trade-off here,
+// we can improve the interpolation quality by using additional memory
 static void WeightImBlock(u16 *pix, u8 curr, u8 top, u8 bottom, u8 left, u8 right)
 {
     u32 const tmb = top - bottom;
@@ -326,7 +328,7 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
         if (wcode->basis_curr == 8)
         {
             // HVQM4: OrgBlock (but on block type 6)
-            putchar('O');
+            //putchar('O');
             for (u32 i = 0; i < 16; ++i)
                 *pix++ = *(u8*)global.fixvl[plane_idx]++;
         }
@@ -338,6 +340,7 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
                 pix[i] = wcode->dcbuf_curr;
             for (u32 i = 0; i < wcode->basis_curr; ++i)
             {
+                // aka F4
                 u16 bits = read16(global.fixvl[plane_idx]);
                 global.fixvl[plane_idx] += 2;
                 u32 x_stride = ((bits >> 0) & 1) + 1;
@@ -360,7 +363,6 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
                 {
                     for (int x = 0; x < 4; ++x)
                     {
-                        // FIXME?
                         u8 nest_value = nest[y * y_stride * global.nest_w + x * x_stride];
                         tmp[y][x] = nest_value;
                         sum += nest_value;
@@ -368,9 +370,7 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
                 }
                 // FIXME?
                 s32 mean = (sum + 8) >> 4;
-                s16 max = tmp[0][0] - mean;
-                if (max < 0)
-                    max = -max;
+                s16 max = 0;
                 for (int y = 0; y < 4; ++y)
                 {
                     for (int x = 0; x < 4; ++x)
@@ -383,10 +383,10 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
                             max = value;
                     }
                 }
-                s32 foo = bits >> 13;
+                s32 beta_q = bits >> 13;
                 s32 scale = decodeHuff2(&global.scale_buf[plane_idx], &global.scale_tree);
-                s32 div = global.divT[(u16)max];
-                s32 bar = (foo + scale) * div;
+                s32 div = global.divT[max];
+                s32 bar = (beta_q + scale) * div;
                 u16 *out = pix;
                 for (int y = 0; y < 4; ++y)
                     for (int x = 0; x < 4; ++x)
@@ -623,7 +623,10 @@ static void decFrame(u32 *outbuf)
     global.v_wcode.dcbuf_prev_line = global.dcbuf[2];
     if (global.mcu411)
     {
-        advance_wcode(&global.y0wcode, global.lum_hblocks);
+        global.y0wcode.basis_curr_line += global.lum_hblocks;
+        global.y0wcode.dcbuf_curr_line += global.lum_hblocks;
+        global.y0wcode.basis_next_line += global.lum_hblocks;
+        global.y0wcode.dcbuf_next_line += global.lum_hblocks;
         advance_wcode(&global.y1wcode, global.lum_hblocks);
     }
     else
@@ -901,7 +904,7 @@ static void HVQMDecodeIpic(HVQM2KeyFrame const *keyframe, void const *code)
     MakeNest(read16(&keyframe->nest_start_x), read16(&keyframe->nest_start_y));
 }
 
-static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, void *outbuf)
+static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, void *outbuf, void const *previm)
 {
     setCode(&global.movevector_buf, code + read32(&predict->movevector_offset));
     readTree(&global.movevector_buf, &global.movevector_tree);
@@ -928,6 +931,7 @@ static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, v
     u8 rle_lum = 0;
     u8 rle_col = 0;
     u8 dc_y = 0, dc_u = 0, dc_v = 0;
+    s8 mv_x = 0, mv_y = 0;
     void *outbuf_line = outbuf;
     for (u32 y = 0; y < global.im_height; y += 8)
     {
@@ -991,28 +995,56 @@ static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, v
             }
             else
             {
-                    *global.y0wcode.basis_curr_line++ = 0;
-                    *global.y0wcode.basis_curr_line++ = 0;
-                    *global.y0wcode.dcbuf_curr_line++ = dc_y;
-                    *global.y0wcode.dcbuf_curr_line++ = dc_y;
-                    *global.y0wcode.basis_curr_line++ = 0;
-                    *global.y0wcode.basis_curr_line++ = 0;
-                    *global.y0wcode.dcbuf_next_line++ = dc_y;
-                    *global.y0wcode.dcbuf_next_line++ = dc_y;
+                mv_x += decodeHuff(&global.movevector_buf, &global.movevector_tree);
+                mv_y += decodeHuff(&global.movevector_buf, &global.movevector_tree);
 
-                    *global.u_wcode.basis_curr_line++ = 0;
-                    *global.u_wcode.dcbuf_curr_line++ = dc_u;
-                    *global.v_wcode.basis_curr_line++ = 0;
-                    *global.v_wcode.dcbuf_curr_line++ = dc_v;
-                    if (!global.mcu411)
-                    {
-                        *global.u_wcode.basis_curr_line++ = 0;
-                        *global.u_wcode.dcbuf_curr_line++ = dc_u;
-                        *global.v_wcode.basis_curr_line++ = 0;
-                        *global.v_wcode.dcbuf_curr_line++ = dc_v;
-                    }
+                u32 pos_y = y + mv_y;
+                u32 pos_x = x + mv_x;
+                u32 const *src = previm + pos_x + pos_y * global.fb_width;
+                u32 *dst = outbuf_pos;
+                for (u32 i = 0; i < 8; ++i)
+                {
+                    for (u32 j = 0; j < 8; ++j)
+                        dst[j] = src[j];
+                    src += global.fb_width;
+                    dst += global.fb_width;
+                }
+
+                *global.y0wcode.basis_curr_line++ = 0x80;
+                *global.y0wcode.basis_curr_line++ = 0x80;
+                global.y0wcode.dcbuf_curr_line += 2;
+                *global.y0wcode.basis_next_line++ = 0x80;
+                *global.y0wcode.basis_next_line++ = 0x80;
+                global.y0wcode.dcbuf_next_line += 2;
+
+                *global.u_wcode.basis_curr_line++ = 0x80;
+                global.u_wcode.dcbuf_curr_line++;
+                *global.v_wcode.basis_curr_line++ = 0x80;
+                global.v_wcode.dcbuf_curr_line++;
+                if (!global.mcu411)
+                {
+                    *global.u_wcode.basis_curr_line++ = 0x80;
+                    global.u_wcode.dcbuf_curr_line++;
+                    *global.v_wcode.basis_curr_line++ = 0x80;
+                    global.v_wcode.dcbuf_curr_line++;
+                }
             }
             outbuf_pos += 32;
+        }
+        global.y0wcode.basis_curr_line += global.lum_hblocks;
+        global.y0wcode.dcbuf_curr_line += global.lum_hblocks;
+        global.y0wcode.basis_next_line += global.lum_hblocks;
+        global.y0wcode.dcbuf_next_line += global.lum_hblocks;
+        if (!global.mcu411)
+        {
+            global.u_wcode.basis_curr_line += global.col_hblocks;
+            global.u_wcode.dcbuf_curr_line += global.col_hblocks;
+            global.u_wcode.basis_next_line += global.col_hblocks;
+            global.u_wcode.dcbuf_next_line += global.col_hblocks;
+            global.v_wcode.basis_curr_line += global.col_hblocks;
+            global.v_wcode.dcbuf_curr_line += global.col_hblocks;
+            global.v_wcode.basis_next_line += global.col_hblocks;
+            global.v_wcode.dcbuf_next_line += global.col_hblocks;
         }
         outbuf_line += global.next_macroblk_line;
     }
@@ -1066,7 +1098,7 @@ static void my_hvqm2Decode2(void const *code, u32 format, u32 *outbuf, u32 *prev
     else
     {
         HVQM2PredictFrame const *predict = code + sizeof(HVQM2Frame);
-        HVQMDecodePpic(predict, code, outbuf);
+        HVQMDecodePpic(predict, code, outbuf, previm);
         //decFrame(outbuf);
     }
 }
