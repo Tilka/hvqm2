@@ -967,29 +967,26 @@ static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, v
                 }
                 else
                 {
-                    dc_y += decodeDC(&global.dcval_buf[0]);
-                    dc_u += decodeDC(&global.dcval_buf[1]);
-                    dc_v += decodeDC(&global.dcval_buf[2]);
                     *global.y0wcode.basis_curr_line++ = getDeltaBN(&rle_lum, &global.basisnum_buf[0], &global.basisnumrun_buf[0]);
                     *global.y0wcode.basis_curr_line++ = getDeltaBN(&rle_lum, &global.basisnum_buf[0], &global.basisnumrun_buf[0]);
-                    *global.y0wcode.dcbuf_curr_line++ = dc_y;
-                    *global.y0wcode.dcbuf_curr_line++ = dc_y;
+                    *global.y0wcode.dcbuf_curr_line++ = (dc_y += decodeDC(&global.dcval_buf[0]));
+                    *global.y0wcode.dcbuf_curr_line++ = (dc_y += decodeDC(&global.dcval_buf[0]));
                     *global.y0wcode.basis_next_line++ = getDeltaBN(&rle_lum, &global.basisnum_buf[0], &global.basisnumrun_buf[0]);
                     *global.y0wcode.basis_next_line++ = getDeltaBN(&rle_lum, &global.basisnum_buf[0], &global.basisnumrun_buf[0]);
-                    *global.y0wcode.dcbuf_next_line++ = dc_y;
-                    *global.y0wcode.dcbuf_next_line++ = dc_y;
+                    *global.y0wcode.dcbuf_next_line++ = (dc_y += decodeDC(&global.dcval_buf[0]));
+                    *global.y0wcode.dcbuf_next_line++ = (dc_y += decodeDC(&global.dcval_buf[0]));
                     u8 deltaBN = getDeltaBN(&rle_col, &global.basisnum_buf[1], &global.basisnumrun_buf[1]);
-                    *global.u_wcode.basis_curr_line++ = deltaBN;
-                    *global.u_wcode.dcbuf_curr_line++ = dc_u;
-                    *global.v_wcode.basis_curr_line++ = deltaBN;
-                    *global.v_wcode.dcbuf_curr_line++ = dc_v;
+                    *global.u_wcode.basis_curr_line++ = (deltaBN >> 0) & 0xF;
+                    *global.v_wcode.basis_curr_line++ = (deltaBN >> 4) & 0xF;
+                    *global.u_wcode.dcbuf_curr_line++ = (dc_u += decodeDC(&global.dcval_buf[1]));
+                    *global.v_wcode.dcbuf_curr_line++ = (dc_v += decodeDC(&global.dcval_buf[2]));
                     if (!global.mcu411)
                     {
                         deltaBN = getDeltaBN(&rle_col, &global.basisnum_buf[1], &global.basisnumrun_buf[1]);
-                        *global.u_wcode.basis_curr_line++ = deltaBN;
-                        *global.u_wcode.dcbuf_curr_line++ = dc_u;
-                        *global.v_wcode.basis_curr_line++ = deltaBN;
-                        *global.v_wcode.dcbuf_curr_line++ = dc_v;
+                        *global.u_wcode.basis_next_line++ = (deltaBN >> 0) & 0xF;
+                        *global.v_wcode.basis_next_line++ = (deltaBN >> 4) & 0xF;
+                        *global.u_wcode.dcbuf_next_line++ = (dc_u += decodeDC(&global.dcval_buf[1]));
+                        *global.v_wcode.dcbuf_next_line++ = (dc_v += decodeDC(&global.dcval_buf[2]));
                     }
                 }
             }
