@@ -421,8 +421,23 @@ static u32 yuv2rgba(s16 y, s16 u, s16 v)
 
 static void ColorConv422(u32 *outbuf, u16 const *pix_y, u16 const *pix_u, u16 const *pix_v)
 {
-    puts("TODO: ColorConv422");
-    exit(1);
+    u16 const *pix_y0 = pix_y;
+    u16 const *pix_y1 = pix_y + 16;
+    for (u32 i = 0; i < 4; ++i)
+    {
+        u32 *out = outbuf;
+        for (u32 j = 0; j < 2; ++j)
+        {
+            *out++ = yuv2rgba(*pix_y0++, *pix_u,   *pix_v);
+            *out++ = yuv2rgba(*pix_y0++, *pix_u++, *pix_v++);
+        }
+        for (u32 j = 0; j < 2; ++j)
+        {
+            *out++ = yuv2rgba(*pix_y1++, *pix_u,   *pix_v);
+            *out++ = yuv2rgba(*pix_y1++, *pix_u++, *pix_v++);
+        }
+        outbuf += global.fb_width;
+    }
 }
 
 static void ColorConv411(u32 *outbuf, u16 const *pix_y, u16 const *pix_u, u16 const *pix_v)
