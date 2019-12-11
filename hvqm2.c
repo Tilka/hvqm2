@@ -1020,10 +1020,10 @@ static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, v
                 global.v_wcode.dcbuf_curr_line++;
                 if (!global.mcu411)
                 {
-                    *global.u_wcode.basis_curr_line++ = 0x80;
-                    global.u_wcode.dcbuf_curr_line++;
-                    *global.v_wcode.basis_curr_line++ = 0x80;
-                    global.v_wcode.dcbuf_curr_line++;
+                    *global.u_wcode.basis_next_line++ = 0x80;
+                    global.u_wcode.dcbuf_next_line++;
+                    *global.v_wcode.basis_next_line++ = 0x80;
+                    global.v_wcode.dcbuf_next_line++;
                 }
             }
             outbuf_pos += 32;
