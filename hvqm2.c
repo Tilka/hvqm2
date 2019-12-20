@@ -394,8 +394,8 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
                     for (int x = 0; x < 4; ++x)
                         pix[y*4 + x] += (tmp[y][x] * bar + 512) >> 10;
             }
-            for (int j = 0; j < 16; ++j)
-                pix[j] = 0;
+            for (u32 i = 0; i < 16; ++i)
+                pix[i] = wcode->dcbuf_curr;
         }
         wcode->dcbuf_prev = wcode->dcbuf_next;
     }
