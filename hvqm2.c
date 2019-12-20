@@ -329,18 +329,20 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
         {
             // HVQM4: OrgBlock (but on block type 6)
             //putchar('O');
+            u8 const *src = global.fixvl[plane_idx];
             for (u32 i = 0; i < 16; ++i)
-                *pix++ = *(u8*)global.fixvl[plane_idx]++;
+                pix[i] = src[i];
+            global.fixvl[plane_idx] += 16;
         }
         else
         {
-            // HVQM4: IntraAotBlock
             //putchar('A');
+            // HVQM4: IntraAotBlock
             for (u32 i = 0; i < 16; ++i)
                 pix[i] = wcode->dcbuf_curr;
             for (u32 i = 0; i < wcode->basis_curr; ++i)
             {
-                // aka F4
+                // aka code F4
                 u16 bits = read16(global.fixvl[plane_idx]);
                 global.fixvl[plane_idx] += 2;
                 u32 x_stride = ((bits >> 0) & 1) + 1;
@@ -348,11 +350,13 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
                 u32 nest_pos_x, nest_pos_y;
                 if (global.yshift == 8)
                 {
+                    // landscape nest
                     nest_pos_y = ((bits >> 8) & 0x1F);
                     nest_pos_x = ((bits >> 2) & 0x3F);
                 }
                 else
                 {
+                    // portrait nest
                     nest_pos_y = ((bits >> 7) & 0x3F);
                     nest_pos_x = ((bits >> 2) & 0x1F);
                 }
@@ -368,9 +372,8 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
                         sum += nest_value;
                     }
                 }
-                // FIXME?
                 s32 mean = (sum + 8) >> 4;
-                s16 max = 0;
+                s16 max = -1;
                 for (int y = 0; y < 4; ++y)
                 {
                     for (int x = 0; x < 4; ++x)
@@ -383,14 +386,13 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
                             max = value;
                     }
                 }
-                s32 beta_q = bits >> 13;
+                s32 beta_q = (bits >> 13) & 7;
                 s32 scale = decodeHuff2(&global.scale_buf[plane_idx], &global.scale_tree);
                 s32 div = global.divT[max];
                 s32 bar = (beta_q + scale) * div;
-                u16 *out = pix;
                 for (int y = 0; y < 4; ++y)
                     for (int x = 0; x < 4; ++x)
-                        *out++ += (tmp[y][x] * bar + 512) >> 10;
+                        pix[y*4 + x] += (tmp[y][x] * bar + 512) >> 10;
             }
             for (int j = 0; j < 16; ++j)
                 pix[j] = 0;
@@ -719,13 +721,13 @@ static u32 my_hvqm2Setup2(HVQM2Header *header, u32 outbufWidth)
     global.yshift = header->y_shiftnum;
     if (global.yshift == 8)
     {
-        global.nest_w = 70;
-        global.nest_h = 38;
+        global.nest_w = HVQM2_NESTSIZE_L;
+        global.nest_h = HVQM2_NESTSIZE_S;
     }
     else
     {
-        global.nest_w = 38;
-        global.nest_h = 70;
+        global.nest_w = HVQM2_NESTSIZE_S;
+        global.nest_h = HVQM2_NESTSIZE_L;
     }
     global.dc_min = 0xFF80 << header->video_quantize_shift;
     global.dc_max = 0x007F << header->video_quantize_shift;
@@ -884,7 +886,7 @@ static void MakeNest(u16 nest_start_x, u16 nest_start_y)
         v_empty = 0;
     }
     uint8_t *nest = global.nest;
-    u8 const *ptr = &global.dcbuf[0][global.lum_hblocks * nest_start_y + nest_start_x];
+    u8 const *ptr = global.dcbuf[0] + global.lum_hblocks * nest_start_y + nest_start_x;
     for (u32 i = 0; i < v_nest_blocks; ++i)
     {
         u8 const *p = ptr;
@@ -917,6 +919,81 @@ static void HVQMDecodeIpic(HVQM2KeyFrame const *keyframe, void const *code)
     Ipic_BasisNumDec();
     IpicDcvDec();
     MakeNest(read16(&keyframe->nest_start_x), read16(&keyframe->nest_start_y));
+}
+
+u8 mv_image[MAXWIDTH*MAXHEIGHT*4];
+
+static void ResetMotionVectorImage()
+{
+    memset(mv_image, 0, sizeof(mv_image));
+}
+
+static void plotLineLow(u32 x0, u32 y0, u32 x1, u32 y1)
+{
+    s32 dx = x1 - x0;
+    s32 dy = y1 - y0;
+    s32 yi = 1;
+    if (dy < 0)
+    {
+        yi = -1;
+        dy = -dy;
+    }
+    s32 D = 2*dy - dx;
+    u32 y = y0;
+    for (u32 x = x0; x <= x1; ++x)
+    {
+        ((u32*)mv_image)[x + y * global.fb_width] = 0xFFFF00FF;
+        if (D > 0)
+        {
+               y = y + yi;
+               D = D - 2*dx;
+        }
+        D = D + 2*dy;
+    }
+}
+
+static void plotLineHigh(u32 x0, u32 y0, u32 x1, u32 y1)
+{
+    s32 dx = x1 - x0;
+    s32 dy = y1 - y0;
+    s32 xi = 1;
+    if (dx < 0)
+    {
+        xi = -1;
+        dx = -dx;
+    }
+    s32 D = 2*dx - dy;
+    u32 x = x0;
+    for (u32 y = y0; y <= y1; ++y)
+    {
+        ((u32*)mv_image)[x + y * global.fb_width] = 0xFFFF00FF;
+        if (D > 0)
+        {
+               x = x + xi;
+               D = D - 2*dy;
+        }
+        D = D + 2*dx;
+    }
+}
+
+static s32 my_abs(s32 x)
+{
+    return x < 0 ? -x : x;
+}
+
+static void DrawMotionVector(u32 x0, u32 y0, u32 x1, u32 y1)
+{
+    // Bresenham's line algorithm
+    if (my_abs(y1 - y0) < my_abs(x1 - x0))
+        if (x0 > x1)
+            plotLineLow(x1, y1, x0, y0);
+        else
+            plotLineLow(x0, y0, x1, y1);
+    else
+        if (y0 > y1)
+            plotLineHigh(x1, y1, x0, y0);
+        else
+            plotLineHigh(x0, y0, x1, y1);
 }
 
 static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, u32 *outbuf, u32 const *previm)
@@ -1012,6 +1089,9 @@ static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, u
 
                 u32 pos_y = y + mv_y;
                 u32 pos_x = x + mv_x;
+
+                DrawMotionVector(pos_x, pos_y, x, y);
+
                 u32 const *src = previm + pos_x + pos_y * global.fb_width;
                 u32 *dst = outbuf_pos;
                 for (u32 i = 0; i < 8; ++i)
@@ -1125,9 +1205,10 @@ static void dumpRGB(HVQM2Header const *header, u32 frame, u32 frame_type, u8 con
     // remove alpha
     for (u32 i = 0; i < header->width * header->height; ++i)
     {
-        temp[3*i+0] = outbuf[4*i+0];
-        temp[3*i+1] = outbuf[4*i+1];
-        temp[3*i+2] = outbuf[4*i+2];
+        int mv = mv_image[4*i+0] | mv_image[4*i+1] | mv_image[4*i+2];
+        temp[3*i+0] = mv ? mv_image[4*i+0] : outbuf[4*i+0];
+        temp[3*i+1] = mv ? mv_image[4*i+1] : outbuf[4*i+1];
+        temp[3*i+2] = mv ? mv_image[4*i+2] : outbuf[4*i+2];
     }
     fwrite(temp, header->width * header->height * 3, 1, outfile);
     fclose(outfile);
@@ -1239,6 +1320,7 @@ int main(int argc, char **argv)
 
         curr ^= 1;
         ++frame;
+        ResetMotionVectorImage();
     }
     puts("");
 }
