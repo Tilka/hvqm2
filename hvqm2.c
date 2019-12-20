@@ -919,7 +919,7 @@ static void HVQMDecodeIpic(HVQM2KeyFrame const *keyframe, void const *code)
     MakeNest(read16(&keyframe->nest_start_x), read16(&keyframe->nest_start_y));
 }
 
-static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, void *outbuf, void const *previm)
+static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, u32 *outbuf, u32 const *previm)
 {
     setCode(&global.movevector_buf, code + read32(&predict->movevector_offset));
     readTree(&global.movevector_buf, &global.movevector_tree);
@@ -947,10 +947,10 @@ static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, v
     u8 rle_col = 0;
     u8 dc_y = 0, dc_u = 0, dc_v = 0;
     s8 mv_x = 0, mv_y = 0;
-    void *outbuf_line = outbuf;
+    u32 *outbuf_line = outbuf;
     for (u32 y = 0; y < global.im_height; y += 8)
     {
-        void *outbuf_pos = outbuf_line;
+        u32 *outbuf_pos = outbuf_line;
         for (u32 x = 0; x < global.im_width; x += 8)
         {
             if (getBit(&global.macroblock_buf))
@@ -1041,7 +1041,7 @@ static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, v
                     global.v_wcode.dcbuf_next_line++;
                 }
             }
-            outbuf_pos += 32;
+            outbuf_pos += 8;
         }
         global.y0wcode.basis_curr_line += global.lum_hblocks;
         global.y0wcode.dcbuf_curr_line += global.lum_hblocks;
@@ -1099,7 +1099,7 @@ static void my_hvqm2Decode2(void const *code, u32 format, u32 *outbuf, u32 *prev
     readTree(&global.basisnumrun_buf[0], &global.basisnumrun_tree);
     readTree(&global.scale_buf[0], &global.scale_tree);
     readTree(&global.dcval_buf[0], &global.dcval_tree);
-    global.nest = &global.nestbuf[0];
+    global.nest = global.nestbuf;
 
     if (format == HVQM2_VIDEO_KEYFRAME)
     {
@@ -1111,7 +1111,7 @@ static void my_hvqm2Decode2(void const *code, u32 format, u32 *outbuf, u32 *prev
     {
         HVQM2PredictFrame const *predict = code + sizeof(HVQM2Frame);
         HVQMDecodePpic(predict, code, outbuf, previm);
-        //decFrame(outbuf);
+        decFrame(outbuf);
     }
 }
 
@@ -1195,7 +1195,7 @@ int main(int argc, char **argv)
 #endif
 
     u32 curr = 0;
-    for (u32 frame = 0; frame < header.total_frames; ++frame)
+    for (u32 frame = 0; frame < header.total_frames;)
     {
         fread(buffer, 1, sizeof(HVQM2Record), f);
         record.type   = read16(&buffer[0]);
@@ -1220,12 +1220,11 @@ int main(int argc, char **argv)
         }
         fflush(stdout);
 #ifdef NATIVE
-        my_hvqm2Decode2(buffer, record.format, (u32*)outbuf[curr], (u32*)outbuf[1 - curr], workbuf);
+        my_hvqm2Decode2(buffer, record.format, (u32*)outbuf[curr], (u32*)outbuf[curr ^ 1], workbuf);
 #else
-        hvqm2Decode2(buffer, record.format, (u32*)outbuf[curr], (u32*)outbuf[1 - curr], workbuf);
+        hvqm2Decode2(buffer, record.format, (u32*)outbuf[curr], (u32*)outbuf[curr ^ 1], workbuf);
 #endif
 
-        if (record.format == HVQM2_VIDEO_KEYFRAME)
         {
             u8 *wb = (u8*)workbuf;
             global.basis[0] = wb; wb += global.lum_totalblocks;
@@ -1239,6 +1238,7 @@ int main(int argc, char **argv)
         }
 
         curr ^= 1;
+        ++frame;
     }
     puts("");
 }
