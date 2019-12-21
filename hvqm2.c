@@ -314,7 +314,6 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
 {
     if (wcode->basis_curr == 0)
     {
-        //putchar('W');
         u8 curr   =  wcode->dcbuf_curr;
         u8 right  =  wcode->basis_next      == 0 ?  wcode->dcbuf_next      : curr;
         u8 top    = *wcode->basis_prev_line == 0 ? *wcode->dcbuf_prev_line : curr;
@@ -328,7 +327,6 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
         if (wcode->basis_curr == 8)
         {
             // HVQM4: OrgBlock (but on block type 6)
-            //putchar('O');
             u8 const *src = global.fixvl[plane_idx];
             for (u32 i = 0; i < 16; ++i)
                 pix[i] = src[i];
@@ -336,7 +334,6 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
         }
         else
         {
-            //putchar('A');
             // HVQM4: IntraAotBlock
             for (u32 i = 0; i < 16; ++i)
                 pix[i] = wcode->dcbuf_curr;
@@ -394,8 +391,6 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
                     for (int x = 0; x < 4; ++x)
                         pix[y*4 + x] += (tmp[y][x] * bar + 512) >> 10;
             }
-            for (u32 i = 0; i < 16; ++i)
-                pix[i] = wcode->dcbuf_curr;
         }
         wcode->dcbuf_prev = wcode->dcbuf_next;
     }
@@ -1173,7 +1168,8 @@ static void my_hvqm2Decode2(void const *code, u32 format, u32 *outbuf, u32 *prev
     {
         setCode(&global.scale_buf[i], code + read32(&frame->scale_offset[i]));
         setCode(&global.dcval_buf[i], code + read32(&frame->dcval_offset[i]));
-        global.fixvl[i] = code + read32(&frame->fixvl_offset[i]);
+        // probably has a size field as well
+        global.fixvl[i] = code + read32(&frame->fixvl_offset[i]) + 4;
     }
     readTree(&global.basisnum_buf[0], &global.basisnum_tree);
     readTree(&global.basisnumrun_buf[0], &global.basisnumrun_tree);
