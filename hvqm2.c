@@ -8,9 +8,6 @@
 #define HVQM_DATASIZE_MAX 30000
 #define OUTPUT_DIR "output"
 
-#pragma GCC diagnostic ignored "-Wunused-function"
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-
 _Static_assert(sizeof(HVQM2Frame) == 0x34, "");
 
 typedef struct BitBuffer
@@ -159,7 +156,7 @@ static u32 getBit(BitBuffer *buf)
         if (!buf->size)
         {
             fprintf(stderr, "error: BitBuffer overread\n");
-            //exit(1);
+            exit(1);
         }
         buf->size -= 4;
 #endif
@@ -228,9 +225,7 @@ static s16 decodeHuff(BitBuffer *buf, Tree *tree)
 
 static s16 decodeHuff2(BitBuffer *buf, Tree *tree)
 {
-    s16 pos = tree->root;
-    while (pos >= 0x100)
-        pos = tree->array[getBit(buf)][pos];
+    s16 pos = decodeHuff(buf, tree);
     return tree->array[0][pos];
 }
 
@@ -976,6 +971,7 @@ static s32 my_abs(s32 x)
     return x < 0 ? -x : x;
 }
 
+__attribute__((unused))
 static void DrawMotionVector(u32 x0, u32 y0, u32 x1, u32 y1)
 {
     // Bresenham's line algorithm
@@ -1085,7 +1081,7 @@ static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, u
                 u32 pos_y = y + mv_y;
                 u32 pos_x = x + mv_x;
 
-                DrawMotionVector(pos_x, pos_y, x, y);
+                //DrawMotionVector(pos_x, pos_y, x, y);
 
                 u32 const *src = previm + pos_x + pos_y * global.fb_width;
                 u32 *dst = outbuf_pos;

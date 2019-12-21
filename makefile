@@ -25,4 +25,4 @@ native:
 
 run: native
 	./hvqm2 $(MOVIE)
-	#diff -qr output/ reference/$(MOVIE_FILE)/
+	diff -qr output/ reference/$(MOVIE_FILE)/
