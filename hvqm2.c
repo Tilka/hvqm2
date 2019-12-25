@@ -108,7 +108,7 @@ static struct
     u32 nest_h;
     u8 yshift;
     u8 pix_alpha;
-    u16 pix_y[4*16];
+    u16 pix_y[4][16];
     u16 pix_u[16];
     u16 pix_v[16];
 } global;
@@ -530,21 +530,21 @@ static void decLine(u32 *outbuf)
         else
         {
             update_wcode(&global.y0wcode);
-            decBlockCPU(global.pix_y + 0*16, &global.y0wcode, 0);
+            decBlockCPU(global.pix_y[0], &global.y0wcode, 0);
             update_wcode(&global.y0wcode);
-            decBlockCPU(global.pix_y + 1*16, &global.y0wcode, 0);
+            decBlockCPU(global.pix_y[1], &global.y0wcode, 0);
             if (global.mcu411)
             {
                 update_wcode(&global.y1wcode);
-                decBlockCPU(global.pix_y + 2*16, &global.y1wcode, 0);
+                decBlockCPU(global.pix_y[2], &global.y1wcode, 0);
                 update_wcode(&global.y1wcode);
-                decBlockCPU(global.pix_y + 3*16, &global.y1wcode, 0);
+                decBlockCPU(global.pix_y[3], &global.y1wcode, 0);
             }
             update_wcode(&global.u_wcode);
             decBlockCPU(global.pix_u, &global.u_wcode, 1);
             update_wcode(&global.v_wcode);
             decBlockCPU(global.pix_v, &global.v_wcode, 2);
-            global.ColorConv(outbuf, global.pix_y, global.pix_u, global.pix_v);
+            global.ColorConv(outbuf, global.pix_y[0], global.pix_u, global.pix_v);
         }
         outbuf += global.mcu_h_pix;
     }
@@ -559,21 +559,21 @@ static void decLine(u32 *outbuf)
     else
     {
         update_wcode(&global.y0wcode);
-        decBlockCPU(global.pix_y + 0*16, &global.y0wcode, 0);
+        decBlockCPU(global.pix_y[0], &global.y0wcode, 0);
         global.y0wcode.basis_curr = global.y0wcode.basis_next;
         global.y0wcode.dcbuf_curr = global.y0wcode.dcbuf_next;
         global.y0wcode.basis_curr_line++;
         global.y0wcode.dcbuf_curr_line++;
-        decBlockCPU(global.pix_y + 1*16, &global.y0wcode, 0);
+        decBlockCPU(global.pix_y[1], &global.y0wcode, 0);
         if (global.mcu411)
         {
             update_wcode(&global.y1wcode);
-            decBlockCPU(global.pix_y + 2*16, &global.y1wcode, 0);
+            decBlockCPU(global.pix_y[2], &global.y1wcode, 0);
             global.y1wcode.basis_curr = global.y1wcode.basis_next;
             global.y1wcode.dcbuf_curr = global.y1wcode.dcbuf_next;
             global.y1wcode.basis_curr_line++;
             global.y1wcode.dcbuf_curr_line++;
-            decBlockCPU(global.pix_y + 3*16, &global.y1wcode, 0);
+            decBlockCPU(global.pix_y[3], &global.y1wcode, 0);
         }
         global.u_wcode.basis_curr = global.u_wcode.basis_next;
         global.u_wcode.dcbuf_curr = global.u_wcode.dcbuf_next;
@@ -585,7 +585,7 @@ static void decLine(u32 *outbuf)
         global.v_wcode.basis_curr_line++;
         global.v_wcode.dcbuf_curr_line++;
         decBlockCPU(global.pix_v, &global.v_wcode, 2);
-        global.ColorConv(outbuf, global.pix_y, global.pix_u, global.pix_v);
+        global.ColorConv(outbuf, global.pix_y[0], global.pix_u, global.pix_v);
     }
 }
 
@@ -1227,7 +1227,11 @@ int main(int argc, char **argv)
         fprintf(stderr, "error while opening input file\n");
         return -1;
     };
-    fread(buffer, 1, sizeof(HVQM2Header), f);
+    if (!fread(buffer, sizeof(HVQM2Header), 1, f))
+    {
+        fprintf(stderr, "error reading file header\n");
+        return -1;
+    }
     memcpy(header.file_version, buffer, 16);
     header.file_size             = read32(&buffer[16]);
     header.width                 = read16(&buffer[20]);
@@ -1270,7 +1274,11 @@ int main(int argc, char **argv)
     u32 curr = 0;
     for (u32 frame = 0; frame < header.total_frames;)
     {
-        fread(buffer, 1, sizeof(HVQM2Record), f);
+        if (!fread(buffer, sizeof(HVQM2Record), 1, f))
+        {
+            fprintf(stderr, "error reading record header\n");
+            return -1;
+        }
         record.type   = read16(&buffer[0]);
         record.format = read16(&buffer[2]);
         record.size   = read32(&buffer[4]);
@@ -1279,7 +1287,11 @@ int main(int argc, char **argv)
             fprintf(stderr, "record too large\n");
             return -1;
         }
-        fread(buffer, 1, record.size, f);
+        if (fread(buffer, 1, record.size, f) != record.size)
+        {
+            fprintf(stderr, "error reading record body\n");
+            return -1;
+        }
         if (record.type != HVQM2_VIDEO)
             continue;
         switch (record.format)
