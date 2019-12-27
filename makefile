@@ -1,5 +1,5 @@
 SHELL = /bin/bash
-MOVIE_FILE = trains.hvqm
+MOVIE_FILE = bad_apple.hvqm
 MOVIE = samples/$(MOVIE_FILE)
 ALL_MOVIES = \
 	samples/*.hvqm \
@@ -25,7 +25,7 @@ debug: build_emu output_dir
 
 build_native:
 	#clang -DNATIVE=1 -Wall -Wextra -Og -g -I. hvqm2.c -o hvqm2 -fsanitize=address
-	gcc -DNATIVE=1 -Wall -Wextra -Og -g -I. hvqm2.c -o hvqm2 -fsanitize=address
+	gcc -DNATIVE=1 -Wall -Wextra -O2 -I. hvqm2.c -o hvqm2
 	#gdb -ex r --args ./hvqm2 $(MOVIE)
 
 run: build_native output_dir

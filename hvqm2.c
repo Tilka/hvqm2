@@ -397,16 +397,28 @@ static void decBlockCPU(u16 *pix, struct wcode *wcode, u32 plane_idx)
 
 static u32 yuv2rgba(s16 y, s16 u, s16 v)
 {
-    // ITU-R formula in 10.6-bit fixed-point
     u -= 128;
     v -= 128;
     s32 y6 = y << 6;
     s16 r16 = 0x4020 + v * 90;
-    u8 r = global.clipT[(y6 + r16) >> 6];
     s16 g16 = 0x4020 - v * 46 - u * 22;
-    u8 g = global.clipT[(y6 + g16) >> 6];
     s16 b16 = 0x4020 + u * 113;
-    u8 b = global.clipT[(y6 + b16) >> 6];
+    s32 rr = (y6 + r16) >> 6;
+    s32 gg = (y6 + g16) >> 6;
+    s32 bb = (y6 + b16) >> 6;
+#if 1
+    rr -= 0x100;
+    gg -= 0x100;
+    bb -= 0x100;
+    u8 r = rr < 0 ? 0 : rr > 0xff ? 0xff : rr;
+    u8 g = gg < 0 ? 0 : gg > 0xff ? 0xff : gg;
+    u8 b = bb < 0 ? 0 : bb > 0xff ? 0xff : bb;
+#else
+    // original code, can go out of bounds
+    u8 r = global.clipT[rr];
+    u8 g = global.clipT[gg];
+    u8 b = global.clipT[bb];
+#endif
     u8 a = global.pix_alpha;
     return a << 24 | b << 16 | g << 8 | r;
 }
@@ -768,7 +780,6 @@ static void Ipic_BasisNumDec()
     }
 }
 
-// TODO: verify type of `rle`
 static s16 getDeltaDC(int plane_idx, int *rle)
 {
     if (*rle == 0)
@@ -1078,12 +1089,12 @@ static void HVQMDecodePpic(HVQM2PredictFrame const *predict, void const *code, u
                 mv_x += decodeHuff(&global.movevector_buf, &global.movevector_tree);
                 mv_y += decodeHuff(&global.movevector_buf, &global.movevector_tree);
 
-                u32 pos_y = y + mv_y;
-                u32 pos_x = x + mv_x;
+                u32 src_y = y + mv_y;
+                u32 src_x = x + mv_x;
 
-                //DrawMotionVector(pos_x, pos_y, x, y);
+                //DrawMotionVector(src_x, src_y, x, y);
 
-                u32 const *src = previm + pos_x + pos_y * global.fb_width;
+                u32 const *src = previm + src_x + src_y * global.fb_width;
                 u32 *dst = outbuf_pos;
                 for (u32 i = 0; i < 8; ++i)
                 {
